@@ -43,15 +43,25 @@ func (a *App) resetScan(pattern string) {
 		meta:    map[string]conn.KeyMeta{},
 	}
 	a.listOffset = 0
+	a.valPage = nil
+	a.value.Clear()
+	a.value.SetTitle(" value ")
 }
 
 // connProfile returns the active connection's profile (sane defaults when
 // disconnected).
 func (a *App) connProfile() *config.Profile {
 	if c := a.rc.Load(); c != nil {
-		return c.P
+		p := c.P
+		if p.Separator == "" {
+			p.Separator = ":"
+		}
+		if p.MaxFoldLevel <= 0 {
+			p.MaxFoldLevel = 1
+		}
+		return p
 	}
-	return &config.Profile{}
+	return &config.Profile{Separator: ":", MaxFoldLevel: 1}
 }
 
 // startScan kicks off a cancellable SCAN for pattern and streams results
@@ -232,12 +242,12 @@ func (a *App) keysSelectionChanged(row, _ int) {
 	if idx < 0 || idx >= len(s.keys) {
 		return
 	}
-	a.loadMeta(s.keys[idx])
+	a.loadMeta(s.keys[idx], idx)
 }
 
 // loadMeta fetches metadata for the selected key (debounced) and refreshes
 // the visible row plus the value pane summary.
-func (a *App) loadMeta(key string) {
+func (a *App) loadMeta(key string, idx int) {
 	a.metaSeq++
 	seq := a.metaSeq
 	c := a.rc.Load()
@@ -245,9 +255,9 @@ func (a *App) loadMeta(key string) {
 		return
 	}
 	if m, ok := a.scan.meta[key]; ok {
-		a.showValueSummary(key, m)
-		return
+		a.loadValue(key, m.Type)
 	}
+	a.prefetchAround(idx)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -265,30 +275,9 @@ func (a *App) loadMeta(key string) {
 			if row > 0 && a.scan.keys[a.listOffset+row-1] == key {
 				a.fillKeyRow(row, a.listOffset+row-1)
 			}
-			a.showValueSummary(key, m)
+			a.loadValue(key, m.Type)
 		})
 	}()
-}
-
-// ---- value pane (summary until the full viewers land) --------------------
-
-func (a *App) showValueSummary(key string, m conn.KeyMeta) {
-	a.value.Clear()
-	a.value.SetTitle(fmt.Sprintf(" [%s]%s[%s] · %s ",
-		hex(a.th.Title), key, hex(a.th.Dim), m.Type))
-	rows := [][2]string{
-		{"type", m.Type},
-		{"encoding", m.Encoding},
-		{"ttl", ttlText(m.TTL)},
-		{"size", sizeText(m.Size)},
-	}
-	a.value.SetCell(0, 0, cell("field", a.th.Dim).SetSelectable(false))
-	a.value.SetCell(0, 1, cell("value", a.th.Dim).SetSelectable(false))
-	for i, r := range rows {
-		a.value.SetCell(i+1, 0, cell(r[0], a.th.TypeString))
-		a.value.SetCell(i+1, 1, cell(r[1], a.th.Text))
-	}
-	a.value.Select(1, 0)
 }
 
 // ---- formatting helpers --------------------------------------------------

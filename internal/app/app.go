@@ -43,6 +43,7 @@ type App struct {
 	listOffset int
 	inFill     bool
 	metaSeq    int
+	valPage    *valuePage
 	focusOrder []tview.Primitive
 
 	rc    atomic.Pointer[conn.Conn]
@@ -84,6 +85,8 @@ func (a *App) build() {
 
 	a.keys.SetSelectionChangedFunc(a.keysSelectionChanged)
 	a.ns.SetSelectedFunc(func(int, int) { a.treeEnter() })
+	a.keys.SetInputCapture(a.keysLocalKeys)
+	a.value.SetInputCapture(a.valueLocalKeys)
 
 	a.statusL = tview.NewTextView().SetDynamicColors(true)
 	a.statusR = tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight)
@@ -122,15 +125,22 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		a.tapp.Stop()
 		return nil
 	}
-	// While typing in the command bar, only Tab/Backtab are intercepted.
-	if f := a.tapp.GetFocus(); f == a.cmd {
-		if ev.Key() == tcell.KeyTab {
-			a.cycleFocus(+1)
-			return nil
-		}
-		if ev.Key() == tcell.KeyBacktab {
-			a.cycleFocus(-1)
-			return nil
+	// While typing (command bar or any modal input), only Tab/Backtab are
+	// intercepted: single-letter global shortcuts must never eat keystrokes
+	// meant for a text field.
+	if a.inTextInput() {
+		switch ev.Key() {
+		case tcell.KeyTab, tcell.KeyBacktab:
+			// Tab moves between panes only when a pane has focus; inside a
+			// modal it must stay with the form's own field navigation.
+			if a.focusInPanes() {
+				if ev.Key() == tcell.KeyTab {
+					a.cycleFocus(+1)
+				} else {
+					a.cycleFocus(-1)
+				}
+				return nil
+			}
 		}
 		return ev
 	}
@@ -168,6 +178,34 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 	}
 	return ev
+}
+
+// inTextInput reports whether the focused primitive (or an open modal) is in
+// text-entry mode, where letter keys must pass through untouched.
+func (a *App) inTextInput() bool {
+	switch a.tapp.GetFocus().(type) {
+	case *tview.InputField, *tview.TextArea, *tview.Form, *tview.Button,
+		*tview.Checkbox, *tview.DropDown:
+		return true
+	}
+	for _, name := range []string{"confirm", "prompt", "editor", "connect", "help"} {
+		if a.pages.HasPage(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// focusInPanes reports whether focus is on one of the main panes (not a
+// modal widget).
+func (a *App) focusInPanes() bool {
+	f := a.tapp.GetFocus()
+	for _, p := range a.focusOrder {
+		if p == f {
+			return true
+		}
+	}
+	return false
 }
 
 func onOff(b bool) string {
@@ -240,19 +278,21 @@ func helpText(th theme.Theme) string {
 	dim, hi := hex(th.Dim), hex(th.Title)
 	return fmt.Sprintf(`[%s]navigation[-]
   [%s]Tab[-]%s cycle panes        [%s]arrows[-]%s move selection
+  [%s]/[-]%s filter keys          [%s]r[-]%s rescan
+
+[%s]key list[-]
+  [%s]d[-]%s delete               [%s]t[-]%s ttl            [%s]m[-]%s rename
+
+[%s]value pane[-]
+  [%s]e/⏎[-]%s edit item          [%s]d[-]%s delete item    [%s]n[-]%s new item
+  [%s].[-]%s next page            [%s],[-]%s prev page (list)
 
 [%s]connection[-]
-  [%s]c[-]%s connect / profiles   [%s]Esc[-]%s close dialog
-
-[%s]safety[-]
-  [%s]a[-]%s toggle alert mode (confirm write commands)
-
-[%s]general[-]
-  [%s]?[-]%s help                 [%s]q[-]%s quit`,
-		dim, hi, dim, hi, dim,
-		dim, hi, dim, hi, dim,
-		dim, hi, dim,
-		dim, hi, dim, hi, dim)
+  [%s]c[-]%s connect / profiles   [%s]a[-]%s alert mode     [%s]q[-]%s quit`,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim,
+		dim, hi, dim, hi, dim, hi, dim,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
+		dim, hi, dim, hi, dim, hi, dim)
 }
 
 // ---- status ------------------------------------------------------------
@@ -313,4 +353,57 @@ func human(n int64) string {
 func hex(c tcell.Color) string {
 	r, g, b := c.RGB()
 	return fmt.Sprintf("#%02x%02x%02x", uint8(r), uint8(g), uint8(b))
+}
+
+// keysLocalKeys: per-key operations on the key list.
+func (a *App) keysLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
+	if ev.Key() != tcell.KeyRune {
+		return ev
+	}
+	switch ev.Rune() {
+	case 'd':
+		if k := a.selectedKey(); k != "" {
+			a.deleteKey(k)
+		}
+		return nil
+	case 't':
+		if k := a.selectedKey(); k != "" {
+			a.editKeyTTL(k)
+		}
+		return nil
+	case 'm':
+		if k := a.selectedKey(); k != "" {
+			a.renameKey(k)
+		}
+		return nil
+	}
+	return ev
+}
+
+// valueLocalKeys: item operations + pagination on the value pane.
+func (a *App) valueLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
+	switch ev.Key() {
+	case tcell.KeyEnter:
+		a.editValueItem()
+		return nil
+	case tcell.KeyRune:
+		switch ev.Rune() {
+		case 'e':
+			a.editValueItem()
+			return nil
+		case 'd':
+			a.delValueItem()
+			return nil
+		case 'n':
+			a.newValueItem()
+			return nil
+		case '.':
+			a.nextValuePage()
+			return nil
+		case ',':
+			a.prevValuePage()
+			return nil
+		}
+	}
+	return ev
 }
