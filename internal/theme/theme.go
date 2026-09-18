@@ -109,4 +109,8 @@ func Apply(t Theme) {
 	tview.Styles.InverseTextColor = t.SelFg
 	tview.Styles.BorderColor = t.Border
 	tview.Styles.GraphicsColor = t.Dim
+	// Background is the terminal's own: never paint a palette color, so the
+	// app inherits the user's terminal theme (painting "black" would render
+	// as whatever their palette slot 0 is — often gray).
+	tview.Styles.PrimitiveBackgroundColor = tcell.ColorDefault
 }
