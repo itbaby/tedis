@@ -10,6 +10,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"tedis/internal/encode"
 	"tedis/internal/keyview"
 )
 
@@ -360,13 +361,22 @@ func (a *App) editValueItem() {
 	}
 	switch p.kind {
 	case "string":
-		v, err := keyview.LoadString(context.Background(), c.Client, p.key)
+		codec := a.valueCodec()
+		text, used, err := encode.Format([]byte(p.raw), codec)
 		if err != nil {
-			a.flash(err.Error(), a.th.Error)
+			a.flash("decode: "+err.Error(), a.th.Error)
 			return
 		}
-		a.editorModal("edit string · "+p.key, []editField{{"value", v, true}}, func(vals []string) {
-			a.saveStringKeepTTL(p.key, vals[0])
+		a.editorModal("edit string · "+p.key+" · "+used.Name(), []editField{{"value", text, true}}, func(vals []string) {
+			raw := []byte(vals[0])
+			if enc := used; enc != nil {
+				if b, err := enc.Encode(vals[0]); err == nil {
+					raw = b
+				} else {
+					a.flash("encode: "+err.Error()+" (saving as text)", a.th.Warn)
+				}
+			}
+			a.saveStringKeepTTL(p.key, string(raw))
 		})
 	case "hash":
 		a.editorModal("edit field · "+item[0], []editField{{"field", item[0], false}, {"value", item[1], true}}, func(vals []string) {

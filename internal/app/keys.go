@@ -341,11 +341,13 @@ func (a *App) openFilter() {
 		a.flash("not connected", a.th.Error)
 		return
 	}
-	cur := ""
+	cur := "*"
 	if a.scan != nil {
-		cur = strings.TrimSuffix(a.scan.pattern, "*")
+		cur = a.scan.pattern
 	}
-	a.cmd.SetLabel(" / ").SetLabelColor(a.th.Dim).SetText(cur)
+	a.cmd.SetLabel(" / ").SetLabelColor(a.th.Dim).SetText("").
+		SetPlaceholder("match (current: " + cur + ")").
+		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
 	a.tapp.SetFocus(a.cmd)
 	a.cmd.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
@@ -364,7 +366,8 @@ func (a *App) openFilter() {
 }
 
 func (a *App) restoreCmdBar() {
-	a.cmd.SetLabel(" ❯ ").SetLabelColor(a.th.Read).SetText("").SetDoneFunc(nil)
+	a.cmd.SetLabel(" ❯ ").SetLabelColor(a.th.Read).SetText("").SetDoneFunc(nil).
+		SetPlaceholder("query (phase 3)")
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()
 }

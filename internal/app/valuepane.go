@@ -9,22 +9,26 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
+	"tedis/internal/encode"
 	"tedis/internal/keyview"
 	"tedis/internal/theme"
 )
 
 // valuePage is the current page of the selected key's content.
 type valuePage struct {
-	key  string
-	kind string // redis type: string/hash/list/set/zset/stream
-
-	rows [][2]string // rendered rows (col1, col2)
+	key       string
+	kind      string // redis type: string/hash/list/set/zset/stream
+	raw       string // string payload before decoding
+	codecName string // "", "auto", or codec name (v key cycles)
 
 	cursor  uint64 // SCAN-family cursor (hash/set/zset)
 	start   int64  // list offset
 	total   int64  // list length
 	lastID  string // stream high-water id
 	hasMore bool
+
+	rows      [][2]string // rendered rows (col1, col2)
+	usedCodec string      // codec that produced the current rendering
 }
 
 // loadValue opens the typed view for a key (called when selection settles).
@@ -54,7 +58,8 @@ func (a *App) fetchValuePage() {
 				a.valueErr(err)
 				return
 			}
-			rows = stringRows(v)
+			p.raw = v
+			rows = a.stringRowsDecoded()
 		case "hash":
 			next, items, err := keyview.LoadHash(ctx, c.Client, p.key, p.cursor, 0)
 			if err != nil {
@@ -139,6 +144,64 @@ func (a *App) valueErr(err error) {
 	})
 }
 
+// stringRowsDecoded renders the string payload through the active codec
+// (content rule first, else the manually chosen one, else auto-detect).
+func (a *App) stringRowsDecoded() [][2]string {
+	p := a.valPage
+	codec := a.valueCodec()
+	text, used, err := encode.Format([]byte(p.raw), codec)
+	if err != nil {
+		return [][2]string{{"error", err.Error()}}
+	}
+	p.usedCodec = used.Name()
+	return stringRows(text)
+}
+
+// valueCodec resolves the codec for the current string view.
+func (a *App) valueCodec() encode.Codec {
+	p := a.valPage
+	if p == nil {
+		return nil
+	}
+	if p.codecName == "" || p.codecName == "auto" {
+		if c := a.rc.Load(); c != nil {
+			var rules []encode.Rule
+			for _, r := range c.P.Rules {
+				rules = append(rules, encode.Rule{Pattern: r.Pattern, Type: r.Type, Encoder: r.Encoder})
+			}
+			if name := encode.Resolve(rules, p.key, "string"); name != "" {
+				return encode.ByName(name)
+			}
+		}
+		return nil // auto
+	}
+	return encode.ByName(p.codecName)
+}
+
+// cycleValueCodec steps through auto → builtins → externals.
+func (a *App) cycleValueCodec() {
+	p := a.valPage
+	if p == nil || p.kind != "string" {
+		a.flash("codec applies to string values", a.th.Dim)
+		return
+	}
+	names := encode.CycleNames()
+	cur := p.codecName
+	if cur == "" {
+		cur = "auto"
+	}
+	idx := 0
+	for i, n := range names {
+		if n == cur {
+			idx = i
+			break
+		}
+	}
+	next := names[(idx+1)%len(names)]
+	p.codecName = next
+	a.renderValue()
+}
+
 func stringRows(v string) [][2]string {
 	if !strings.Contains(v, "\n") {
 		return [][2]string{{"value", v}}
@@ -161,7 +224,11 @@ func (a *App) renderValueTitle(n int) {
 		a.value.SetTitle(" value ")
 		return
 	}
-	t := fmt.Sprintf(" [%s]%s[%s] · %s · %d", hex(a.th.Title), p.key, hex(a.th.Dim), p.kind, n)
+	t := fmt.Sprintf(" [%s]%s[%s] · %s", hex(a.th.Title), p.key, hex(a.th.Dim), p.kind)
+	if p.kind == "string" && p.usedCodec != "" {
+		t += fmt.Sprintf(" · %s", p.usedCodec)
+	}
+	t += fmt.Sprintf(" · %d", n)
 	if p.hasMore {
 		t += "+"
 	}

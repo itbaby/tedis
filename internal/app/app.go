@@ -402,6 +402,9 @@ func (a *App) valueLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		case 'n':
 			a.newValueItem()
 			return nil
+		case 'v':
+			a.cycleValueCodec()
+			return nil
 		case '.':
 			a.nextValuePage()
 			return nil
