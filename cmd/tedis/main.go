@@ -13,6 +13,7 @@ import (
 	"tedis/internal/app"
 	"tedis/internal/config"
 	"tedis/internal/conn"
+	"tedis/internal/i18n"
 )
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 	)
 	flag.Parse()
 
+	i18n.Init()
 	logger := newLogger()
 
 	cfgPath := os.Getenv("TEDIS_CONFIG")

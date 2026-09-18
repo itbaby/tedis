@@ -17,6 +17,7 @@ import (
 
 	"tedis/internal/config"
 	"tedis/internal/conn"
+	"tedis/internal/i18n"
 	"tedis/internal/theme"
 )
 
@@ -160,6 +161,12 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		case ':':
 			a.openQuery()
 			return nil
+		case 'i':
+			a.openInfo()
+			return nil
+		case 's':
+			a.openSettings()
+			return nil
 		case 'r':
 			if a.scan != nil {
 				a.startScan(a.scan.pattern)
@@ -179,6 +186,10 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		case '?':
 			a.openHelp()
 			return nil
+		default:
+			if a.dbKey(ev.Rune()) {
+				return nil
+			}
 		}
 	}
 	return ev
@@ -302,17 +313,21 @@ func helpText(th theme.Theme) string {
 // ---- status ------------------------------------------------------------
 
 func (a *App) setHints() {
-	h := fmt.Sprintf("[%s]c[%s] conn  [%s]:[%s] query  [%s]/[%s] filter  [%s]r[%s] rescan  [%s]a[%s] alert:%s  [%s]?[%s] help  [%s]q[%s] quit",
-		hex(a.th.Title), hex(a.th.Dim),
-		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim),
-		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim), onOff(a.alert),
-		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim))
+	h := fmt.Sprintf("[%s]c[%s] %s  [%s]:[%s] %s  [%s]/[%s] %s  [%s]r[%s] %s  [%s]i[%s] %s [%s]s[%s] %s  [%s]a[%s] %s:%s  [%s]?[%s] %s  [%s]q[%s] %s",
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("conn"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("query"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("filter"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("rescan"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("info"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("settings"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("alert"), onOff(a.alert),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("help"),
+		hex(a.th.Title), hex(a.th.Dim), i18n.T("quit"))
 	a.statusR.SetText(h)
 }
 
 func (a *App) setStatusDisconnected() {
-	a.statusL.SetText(fmt.Sprintf("[%s]not connected — press c to open connections",
-		hex(a.th.Dim)))
+	a.statusL.SetText(fmt.Sprintf("[%s]%s", hex(a.th.Dim), i18n.T("not connected")))
 }
 
 func (a *App) setStatusConnected(p *config.Profile, c *conn.Conn, nkeys int64, lat time.Duration) {

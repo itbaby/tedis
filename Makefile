@@ -25,5 +25,8 @@ smoke: build
 	tmux new-session -d -s tedis -x 110 -y 30 'env -u NO_COLOR ./bin/$(BIN) $(SMOKE_ARGS)'; \
 	sleep 2; tmux capture-pane -t tedis -p; tmux kill-session -t tedis
 
+release:
+	@command -v goreleaser >/dev/null && goreleaser release --snapshot --clean || echo "install goreleaser to release"
+
 clean:
 	rm -rf bin dist

@@ -11,6 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"tedis/internal/encode"
+	"tedis/internal/i18n"
 	"tedis/internal/keyview"
 )
 
@@ -204,7 +205,7 @@ func (a *App) deleteKey(key string) {
 		do()
 		return
 	}
-	a.confirmModal("delete key", []string{key}, "delete", do)
+	a.confirmModal(i18n.T("delete key"), []string{key}, "delete", do)
 }
 
 // dropKeyLocal updates scan state after the key is gone on the server.
@@ -515,7 +516,7 @@ func (a *App) delValueItem() {
 		run()
 		return
 	}
-	a.confirmModal("delete item", []string{p.key + " · " + item[0]}, "delete", run)
+	a.confirmModal(i18n.T("delete item"), []string{p.key + " · " + item[0]}, "delete", run)
 }
 
 // saveStringKeepTTL writes a string and re-applies its previous TTL (SET

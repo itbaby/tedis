@@ -14,6 +14,7 @@ import (
 	"tedis/internal/cmdquery"
 	"tedis/internal/cmdtable"
 	"tedis/internal/conn"
+	"tedis/internal/i18n"
 )
 
 // queryPage is the fullscreen command query view (Medis' query window).
@@ -248,7 +249,7 @@ func (q *queryPage) runSelection() {
 	if a.alert {
 		for _, cmd := range toRun {
 			if q.cmds.ClassOf(cmd.Name) == cmdtable.Write {
-				a.confirmModal("alert · write command",
+				a.confirmModal(i18n.T("alert·write"),
 					[]string{strings.ToUpper(cmd.Name) + " " + renderArgs(cmd)},
 					"run", func() { q.exec(c, toRun) })
 				return
