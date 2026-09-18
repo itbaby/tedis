@@ -95,6 +95,73 @@ func (n *node) child(name, prefix string, index map[string]*node) *node {
 // Total returns the number of distinct keys indexed.
 func (t *Tree) Total() int { return t.total }
 
+// Remove un-indexes a key, decrementing counts and pruning empty nodes.
+// Returns false if the key was not present.
+func (t *Tree) Remove(key string) bool {
+	if !t.seen[key] {
+		return false
+	}
+	delete(t.seen, key)
+	t.total--
+
+	parts := strings.Split(key, t.sep)
+	// path = nodes visited, mirroring Add's fold rule
+	var path []*node
+	var prefixes []string
+	cur := &t.root
+	prefix := ""
+	for i, part := range parts {
+		if i >= t.maxFold {
+			part = strings.Join(parts[i:], t.sep)
+		}
+		if prefix == "" {
+			prefix = part
+		} else {
+			prefix += t.sep + part
+		}
+		next, ok := cur.children[part]
+		if !ok {
+			return false // inconsistent; should not happen
+		}
+		path = append(path, next)
+		prefixes = append(prefixes, prefix)
+		cur = next
+		if i >= t.maxFold || i == len(parts)-1 {
+			break
+		}
+	}
+	cur.leaf = false
+	// decrement + prune bottom-up
+	for i := len(path) - 1; i >= 0; i-- {
+		path[i].count--
+		if path[i].count <= 0 && i > 0 {
+			delete(path[i-1].children, path[i].name)
+			delete(t.index, prefixes[i])
+		}
+	}
+	return true
+}
+
+// RememberExpanded returns the prefixes of all expanded folders.
+func (t *Tree) RememberExpanded() []string {
+	var out []string
+	for prefix, n := range t.index {
+		if n.expanded && len(n.children) > 0 {
+			out = append(out, prefix)
+		}
+	}
+	return out
+}
+
+// RestoreExpanded re-applies expansion state recorded by RememberExpanded.
+func (t *Tree) RestoreExpanded(prefixes []string) {
+	for _, p := range prefixes {
+		if n, ok := t.index[p]; ok {
+			n.expanded = true
+		}
+	}
+}
+
 // Toggle expands/collapses the folder at prefix. Returns whether it changed.
 func (t *Tree) Toggle(prefix string) bool {
 	n, ok := t.index[prefix]

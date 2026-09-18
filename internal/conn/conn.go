@@ -162,6 +162,29 @@ func (c *Conn) DBSize(ctx context.Context) (int64, error) {
 	return c.Client.DBSize(ctx).Result()
 }
 
+// KeyMetaBatch fetches type+TTL for many keys in one pipeline (size/encoding
+// are skipped: too costly for bulk prefetch).
+func (c *Conn) KeyMetaBatch(ctx context.Context, keys []string) ([]KeyMeta, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	pipe := c.Client.Pipeline()
+	typeCmds := make([]*redis.StatusCmd, len(keys))
+	ttlCmds := make([]*redis.DurationCmd, len(keys))
+	for i, k := range keys {
+		typeCmds[i] = pipe.Type(ctx, k)
+		ttlCmds[i] = pipe.TTL(ctx, k)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
+	out := make([]KeyMeta, len(keys))
+	for i := range keys {
+		out[i] = KeyMeta{Type: typeCmds[i].Val(), TTL: ttlCmds[i].Val(), Size: -1}
+	}
+	return out, nil
+}
+
 // Close tears down the redis client and the SSH tunnel, if any.
 func (c *Conn) Close() error {
 	var errs []error
