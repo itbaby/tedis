@@ -184,7 +184,9 @@ func (a *App) openConnect() {
 	}
 
 	buildForm()
-	form.AddButton("connect", func() {
+	// actions live in a fixed button row below the form so they stay
+	// visible no matter how tall the field list gets
+	doConnect := func() {
 		p, err := save()
 		if err != nil {
 			a.flash("profile: "+err.Error(), a.th.Error)
@@ -192,15 +194,15 @@ func (a *App) openConnect() {
 		}
 		a.closeModal("connect")
 		a.ConnectAsync(p)
-	})
-	form.AddButton("save", func() {
+	}
+	doSave := func() {
 		if _, err := save(); err != nil {
 			a.flash("profile: "+err.Error(), a.th.Error)
 		} else {
 			a.flash("saved "+fName, a.th.OK)
 		}
-	})
-	form.AddButton("delete", func() {
+	}
+	doDelete := func() {
 		if fName == "" {
 			return
 		}
@@ -211,8 +213,7 @@ func (a *App) openConnect() {
 		reload()
 		resetForm(nil)
 		buildForm()
-	})
-	form.AddButton("close", func() { a.closeModal("connect") })
+	}
 
 	list.SetSelectionChangedFunc(func(row, _ int) {
 		if row <= 0 {
@@ -239,17 +240,47 @@ func (a *App) openConnect() {
 	resetForm(nil)
 	buildForm()
 
-	flex := tview.NewFlex().
-		AddItem(list, 32, 1, true).
-		AddItem(form, 46, 1, false)
-	flex.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+	bar := buttonBar(a, []barBtn{
+		{label: " connect ", fn: doConnect},
+		{label: " save ", fn: doSave},
+		{label: " delete ", fn: doDelete},
+		{label: " close ", fn: func() { a.closeModal("connect") }},
+	})
+	body := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewFlex().
+			AddItem(list, 32, 1, true).
+			AddItem(form, 44, 1, false), 0, 1, true).
+		AddItem(nil, 1, 0, false).
+		AddItem(bar, 1, 0, false)
+	body.SetBorder(true).
+		SetTitle(" connections · ⏎ connect · esc close ").
+		SetTitleColor(a.th.Title).SetTitleAlign(tview.AlignLeft)
+	body.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		if ev.Key() == tcell.KeyEsc {
 			a.closeModal("connect")
 			return nil
 		}
 		return ev
 	})
-	a.showModal("connect", flex, 84, 22)
+	a.showModal("connect", body, 82, 24)
+}
+
+// barBtn is one entry of a one-line button bar.
+type barBtn struct {
+	label string
+	fn    func()
+}
+
+// buttonBar lays out buttons on a single row (always visible, no scrolling).
+func buttonBar(a *App, btns []barBtn) *tview.Flex {
+	bar := tview.NewFlex()
+	for _, b := range btns {
+		btn := tview.NewButton(b.label).SetSelectedFunc(b.fn)
+		btn.SetBackgroundColorActivated(a.th.SelBg)
+		bar.AddItem(btn, len(b.label)+2, 1, false)
+		bar.AddItem(nil, 2, 0, false)
+	}
+	return bar
 }
 
 func sortedProfileNames(c *config.Config) []string {
