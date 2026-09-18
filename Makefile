@@ -19,6 +19,10 @@ lint: vet
 run: build
 	./bin/$(BIN)
 
+# Populate demo data (all codecs + container types) into a redis
+seed:
+	go run ./cmd/seed -addr $(SEED_ADDR)
+
 # Terminal smoke: run in tmux at 110x30 and dump the pane
 smoke: build
 	@tmux kill-session -t tedis 2>/dev/null; \
