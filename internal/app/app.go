@@ -296,7 +296,7 @@ func helpText(th theme.Theme) string {
   [%s]/[-]%s filter keys          [%s]r[-]%s rescan      [%s]:[-]%s query
 
 [%s]key list[-]
-  [%s]d[-]%s delete               [%s]t[-]%s ttl            [%s]m[-]%s rename
+  [%s]d[-]%s delete  [%s]t[-]%s ttl  [%s]m[-]%s rename  [%s]y[-]%s copy
 
 [%s]value pane[-]
   [%s]e/⏎[-]%s edit item          [%s]d[-]%s delete item    [%s]n[-]%s new item
@@ -306,7 +306,7 @@ func helpText(th theme.Theme) string {
   [%s]c[-]%s connect / profiles   [%s]a[-]%s alert mode     [%s]q[-]%s quit`,
 		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
 		dim, hi, dim, hi, dim, hi, dim,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
 		dim, hi, dim, hi, dim, hi, dim)
 }
 
@@ -396,6 +396,9 @@ func (a *App) keysLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 			a.renameKey(k)
 		}
 		return nil
+	case 'y':
+		a.copySelected()
+		return nil
 	}
 	return ev
 }
@@ -419,6 +422,9 @@ func (a *App) valueLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'v':
 			a.cycleValueCodec()
+			return nil
+		case 'y':
+			a.copySelected()
 			return nil
 		case '.':
 			a.nextValuePage()
