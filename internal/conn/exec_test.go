@@ -16,6 +16,7 @@ func TestExecDirect(t *testing.T) {
 	}
 	defer c.Close()
 
+	c.Client.Del(ctx, "tedis:exec:n")
 	c.Client.Set(ctx, "tedis:exec:str", "hello", 0)
 	c.Client.Del(ctx, "tedis:exec:list")
 	c.Client.RPush(ctx, "tedis:exec:list", "a", "b")
