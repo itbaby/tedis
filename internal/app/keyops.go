@@ -388,52 +388,72 @@ func (a *App) editValueItem() {
 			a.saveStringKeepTTL(p.key, string(raw))
 		})
 	case "hash":
-		a.editorModal("edit field · "+item[0], []editField{{"field", item[0], false}, {"value", item[1], true}}, func(vals []string) {
+		text, enc := decodeField(item[1])
+		a.editorModal("edit field · "+item[0], []editField{{"field", item[0], false}, {"value", text, true}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
 				if vals[0] != item[0] {
 					if err := keyview.DelHashField(ctx, c.Client, p.key, item[0]); err != nil {
 						return err
 					}
 				}
-				return keyview.SaveHashField(ctx, c.Client, p.key, vals[0], vals[1])
+				return keyview.SaveHashField(ctx, c.Client, p.key, vals[0], enc(vals[1]))
 			})
 		})
 	case "list":
 		index, _ := strconv.ParseInt(item[0], 10, 64)
-		a.editorModal("edit item", []editField{{"value", item[1], true}}, func(vals []string) {
+		text, enc := decodeField(item[1])
+		a.editorModal("edit item", []editField{{"value", text, true}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
-				return keyview.SaveListItem(ctx, c.Client, p.key, index, vals[0])
+				return keyview.SaveListItem(ctx, c.Client, p.key, index, enc(vals[0]))
 			})
 		})
 	case "set":
-		a.editorModal("edit member", []editField{{"member", item[0], false}}, func(vals []string) {
+		text, enc := decodeField(item[0])
+		a.editorModal("edit member", []editField{{"member", text, false}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
-				if vals[0] == item[0] {
+				if vals[0] == text {
 					return nil
 				}
 				if err := keyview.DelSetMember(ctx, c.Client, p.key, item[0]); err != nil {
 					return err
 				}
-				return keyview.SaveSetMember(ctx, c.Client, p.key, vals[0])
+				return keyview.SaveSetMember(ctx, c.Client, p.key, enc(vals[0]))
 			})
 		})
 	case "zset":
-		a.editorModal("edit member", []editField{{"member", item[0], false}, {"score", item[1], false}}, func(vals []string) {
+		text, enc := decodeField(item[0])
+		a.editorModal("edit member", []editField{{"member", text, false}, {"score", item[1], false}}, func(vals []string) {
 			score, err := strconv.ParseFloat(vals[1], 64)
 			a.runMutation(func(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
-				if vals[0] != item[0] {
+				if vals[0] != text {
 					if e := keyview.DelZSetMember(ctx, c.Client, p.key, item[0]); e != nil {
 						return e
 					}
 				}
-				return keyview.SaveZSetMember(ctx, c.Client, p.key, vals[0], score)
+				return keyview.SaveZSetMember(ctx, c.Client, p.key, enc(vals[0]), score)
 			})
 		})
 	case "stream":
 		a.flash("stream entries are immutable (d to delete)", a.th.Dim)
+	}
+}
+
+// decodeField decodes a container field for editing and returns an encoder
+// that writes edits back through the same codec (raw passthrough when the
+// codec cannot encode). Keeps binary fields lossless through the editor.
+func decodeField(raw string) (string, func(string) string) {
+	text, used, err := encode.Format([]byte(raw), nil)
+	if err != nil || used == nil {
+		return raw, func(s string) string { return s }
+	}
+	return text, func(s string) string {
+		if b, err := used.Encode(s); err == nil {
+			return string(b)
+		}
+		return s
 	}
 }
 

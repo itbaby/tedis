@@ -261,11 +261,15 @@ func (a *App) renderValue() {
 	a.value.SetCell(0, 1, cell(h2, a.th.Dim).SetSelectable(false).SetExpansion(1))
 	for i, r := range p.rows {
 		c1 := cell(r[0], valueCol1Color(a.th, p.kind)).SetMaxWidth(24)
-		if p.kind == "string" {
+		v2 := r[1]
+		if p.kind != "string" && p.kind != "ReJSON-RL" {
+			v2 = encode.DisplayValue(r[1], 160) // view-only; edits use raw
+		}
+		if p.kind == "string" || p.kind == "ReJSON-RL" {
 			c1 = cell(r[0], a.th.Dim).SetMaxWidth(8)
 		}
 		a.value.SetCell(i+1, 0, c1)
-		a.value.SetCell(i+1, 1, cell(r[1], a.th.Text).SetExpansion(1))
+		a.value.SetCell(i+1, 1, cell(v2, a.th.Text).SetExpansion(1))
 	}
 	if len(p.rows) == 0 {
 		a.value.SetCell(1, 0, cell("(empty)", a.th.Dim).SetSelectable(false))

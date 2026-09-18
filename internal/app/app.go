@@ -30,6 +30,7 @@ type App struct {
 	log     *slog.Logger
 
 	pages *tview.Pages
+	panes *tview.Flex
 
 	ns    *tview.Table // namespace tree (filled in phase 2)
 	keys  *tview.Table // key list     (filled in phase 2)
@@ -38,6 +39,8 @@ type App struct {
 
 	statusL *tview.TextView
 	statusR *tview.TextView
+
+	nsW, keysW int // pane widths (adjustable with < and >)
 
 	scan       *scanState
 	treeRows   []scanner.Row
@@ -94,10 +97,12 @@ func (a *App) build() {
 	a.statusR = tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight)
 	a.setHints()
 
-	panes := tview.NewFlex().
-		AddItem(a.ns, 26, 1, false).
-		AddItem(a.keys, 40, 1, true).
+	a.nsW, a.keysW = 26, 40
+	a.panes = tview.NewFlex().
+		AddItem(a.ns, a.nsW, 1, false).
+		AddItem(a.keys, a.keysW, 1, true).
 		AddItem(a.value, 0, 3, false)
+	panes := a.panes
 	status := tview.NewFlex().
 		AddItem(a.statusL, 0, 3, false).
 		AddItem(a.statusR, 0, 2, false)
@@ -163,6 +168,12 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'i':
 			a.openInfo()
+			return nil
+		case '<':
+			a.adjustPane(-2)
+			return nil
+		case '>':
+			a.adjustPane(+2)
 			return nil
 		case 's':
 			a.openSettings()
