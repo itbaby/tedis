@@ -44,6 +44,7 @@ type App struct {
 	inFill     bool
 	metaSeq    int
 	valPage    *valuePage
+	query      *queryPage
 	focusOrder []tview.Primitive
 
 	rc    atomic.Pointer[conn.Conn]
@@ -155,6 +156,9 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		switch ev.Rune() {
 		case '/':
 			a.openFilter()
+			return nil
+		case ':':
+			a.openQuery()
 			return nil
 		case 'r':
 			if a.scan != nil {
@@ -278,7 +282,7 @@ func helpText(th theme.Theme) string {
 	dim, hi := hex(th.Dim), hex(th.Title)
 	return fmt.Sprintf(`[%s]navigation[-]
   [%s]Tab[-]%s cycle panes        [%s]arrows[-]%s move selection
-  [%s]/[-]%s filter keys          [%s]r[-]%s rescan
+  [%s]/[-]%s filter keys          [%s]r[-]%s rescan      [%s]:[-]%s query
 
 [%s]key list[-]
   [%s]d[-]%s delete               [%s]t[-]%s ttl            [%s]m[-]%s rename
@@ -289,7 +293,7 @@ func helpText(th theme.Theme) string {
 
 [%s]connection[-]
   [%s]c[-]%s connect / profiles   [%s]a[-]%s alert mode     [%s]q[-]%s quit`,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
 		dim, hi, dim, hi, dim, hi, dim,
 		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
 		dim, hi, dim, hi, dim, hi, dim)
@@ -298,7 +302,8 @@ func helpText(th theme.Theme) string {
 // ---- status ------------------------------------------------------------
 
 func (a *App) setHints() {
-	h := fmt.Sprintf("[%s]c[%s] conn  [%s]/[%s] filter  [%s]r[%s] rescan  [%s]a[%s] alert:%s  [%s]?[%s] help  [%s]q[%s] quit",
+	h := fmt.Sprintf("[%s]c[%s] conn  [%s]:[%s] query  [%s]/[%s] filter  [%s]r[%s] rescan  [%s]a[%s] alert:%s  [%s]?[%s] help  [%s]q[%s] quit",
+		hex(a.th.Title), hex(a.th.Dim),
 		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim),
 		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim), onOff(a.alert),
 		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim))
