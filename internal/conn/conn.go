@@ -131,6 +131,32 @@ func (c *Conn) Ping(ctx context.Context) (time.Duration, error) {
 	return time.Since(start), err
 }
 
+// KeyMeta describes one key, fetched in a single pipeline round trip.
+type KeyMeta struct {
+	Type     string
+	TTL      time.Duration // -1 = persistent
+	Size     int64         // bytes (MEMORY USAGE)
+	Encoding string        // OBJECT ENCODING (embstr, listpack, …)
+}
+
+// KeyMeta fetches type/TTL/size/encoding for one key.
+func (c *Conn) KeyMeta(ctx context.Context, key string) (KeyMeta, error) {
+	pipe := c.Client.Pipeline()
+	typeCmd := pipe.Type(ctx, key)
+	ttlCmd := pipe.TTL(ctx, key)
+	sizeCmd := pipe.MemoryUsage(ctx, key)
+	encCmd := pipe.ObjectEncoding(ctx, key)
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return KeyMeta{}, err
+	}
+	m := KeyMeta{Type: typeCmd.Val(), TTL: ttlCmd.Val(), Size: -1}
+	if v := sizeCmd.Val(); v > 0 {
+		m.Size = v
+	}
+	m.Encoding = encCmd.Val()
+	return m, nil
+}
+
 // DBSize returns the number of keys in the current database.
 func (c *Conn) DBSize(ctx context.Context) (int64, error) {
 	return c.Client.DBSize(ctx).Result()

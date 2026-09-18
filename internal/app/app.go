@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync/atomic"
+	"tedis/internal/scanner"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -37,6 +38,11 @@ type App struct {
 	statusL *tview.TextView
 	statusR *tview.TextView
 
+	scan       *scanState
+	treeRows   []scanner.Row
+	listOffset int
+	inFill     bool
+	metaSeq    int
 	focusOrder []tview.Primitive
 
 	rc    atomic.Pointer[conn.Conn]
@@ -75,6 +81,9 @@ func (a *App) build() {
 		SetFieldBackgroundColor(tcell.ColorDefault).
 		SetPlaceholder("query (phase 3)").
 		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
+
+	a.keys.SetSelectionChangedFunc(a.keysSelectionChanged)
+	a.ns.SetSelectedFunc(func(int, int) { a.treeEnter() })
 
 	a.statusL = tview.NewTextView().SetDynamicColors(true)
 	a.statusR = tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight)
@@ -134,6 +143,14 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case tcell.KeyRune:
 		switch ev.Rune() {
+		case '/':
+			a.openFilter()
+			return nil
+		case 'r':
+			if a.scan != nil {
+				a.startScan(a.scan.pattern)
+			}
+			return nil
 		case 'q':
 			a.tapp.Stop()
 			return nil
@@ -241,7 +258,8 @@ func helpText(th theme.Theme) string {
 // ---- status ------------------------------------------------------------
 
 func (a *App) setHints() {
-	h := fmt.Sprintf("[%s]c[%s] connect  [%s]a[%s] alert:%s  [%s]?[%s] help  [%s]q[%s] quit",
+	h := fmt.Sprintf("[%s]c[%s] conn  [%s]/[%s] filter  [%s]r[%s] rescan  [%s]a[%s] alert:%s  [%s]?[%s] help  [%s]q[%s] quit",
+		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim),
 		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim), onOff(a.alert),
 		hex(a.th.Title), hex(a.th.Dim), hex(a.th.Title), hex(a.th.Dim))
 	a.statusR.SetText(h)

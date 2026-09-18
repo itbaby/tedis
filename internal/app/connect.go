@@ -43,9 +43,8 @@ func (a *App) onConnected(c *conn.Conn) {
 	}
 	lat, _ := c.Ping(context.Background())
 	a.setStatusConnected(p, c, n, lat)
-	a.ns.Clear()
-	a.keys.Clear()
-	a.value.Clear()
+	a.startScan("*")
+	a.ns.SetTitle(" " + p.Name + " ")
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()
 }
