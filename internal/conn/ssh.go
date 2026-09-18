@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -38,13 +39,9 @@ func sshClient(p *config.Profile) (*ssh.Client, error) {
 		port = 22
 	}
 
+	// explicit key first (matches ssh -i semantics), then agent, then
+	// password — servers count failed attempts against MaxAuthTries
 	var methods []ssh.AuthMethod
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if c, err := net.Dial("unix", sock); err == nil {
-			ag := agent.NewClient(c)
-			methods = append(methods, ssh.PublicKeysCallback(ag.Signers))
-		}
-	}
 	if keyPath != "" {
 		data, err := os.ReadFile(keyPath)
 		if err != nil {
@@ -55,6 +52,12 @@ func sshClient(p *config.Profile) (*ssh.Client, error) {
 			return nil, fmt.Errorf("ssh: parse key %s: %w", keyPath, err)
 		}
 		methods = append(methods, ssh.PublicKeys(signer))
+	}
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		if c, err := net.Dial("unix", sock); err == nil {
+			ag := agent.NewClient(c)
+			methods = append(methods, ssh.PublicKeysCallback(ag.Signers))
+		}
 	}
 	if s.Password != "" {
 		methods = append(methods, ssh.Password(s.Password))
@@ -96,6 +99,20 @@ func hostKeyCallback() ssh.HostKeyCallback {
 // go through the jump host.
 func tunnelDialer(cl *ssh.Client) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return cl.Dial(network, addr)
+		c, err := cl.Dial(network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return deadlineConn{c}, nil
 	}
 }
+
+// deadlineConn hides the "deadline not supported" errors of x/crypto SSH
+// channels: go-redis calls SetDeadline for context support and treats a
+// failed call as a broken connection. Blocking reads are still unblocked by
+// Close (which go-redis invokes on context cancellation).
+type deadlineConn struct{ net.Conn }
+
+func (deadlineConn) SetDeadline(time.Time) error      { return nil }
+func (deadlineConn) SetReadDeadline(time.Time) error  { return nil }
+func (deadlineConn) SetWriteDeadline(time.Time) error { return nil }
