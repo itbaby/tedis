@@ -9,17 +9,15 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"github.com/rivo/tview"
-
 	"tedis/internal/encode"
+	"tedis/internal/jtree"
 	"tedis/internal/keyview"
-	"tedis/internal/theme"
 )
 
 // valuePage is the current page of the selected key's content.
 type valuePage struct {
 	key       string
-	kind      string // redis type: string/hash/list/set/zset/stream
+	kind      string // redis type: string/hash/list/set/zset/stream/ReJSON-RL
 	raw       string // string payload before decoding
 	codecName string // "", "auto", or codec name (v key cycles)
 
@@ -29,9 +27,11 @@ type valuePage struct {
 	lastID  string // stream high-water id
 	hasMore bool
 
-	rows      [][2]string // rendered rows (col1, col2)
+	rows      [][2]string // raw page items (col1, col2) — edits act on these
 	usedCodec string      // codec that produced the current rendering
-	decoded   string      // decoded text (JSON view source)
+	decoded   string      // decoded text (string/ReJSON payloads)
+	tree      *jtree.Node // universal value tree over the page
+	treeRows  []jtree.Row
 }
 
 // loadValue opens the typed view for a key (called when selection settles).
@@ -55,8 +55,14 @@ func (a *App) fetchValuePage() {
 		var rows [][2]string
 		var more bool
 		switch p.kind {
-		case "string":
-			v, err := keyview.LoadString(ctx, c.Client, p.key)
+		case "string", "ReJSON-RL":
+			var v string
+			var err error
+			if p.kind == "ReJSON-RL" {
+				v, err = keyview.LoadJSON(ctx, c.Client, p.key)
+			} else {
+				v, err = keyview.LoadString(ctx, c.Client, p.key)
+			}
 			if err != nil {
 				a.valueErr(err)
 				return
@@ -105,17 +111,8 @@ func (a *App) fetchValuePage() {
 			p.total = total
 			more = p.start+int64(len(items)) < total
 			if p.start > 0 {
-				// keep the window anchored: show "…" marker for earlier items
 				rows = append([][2]string{{fmt.Sprintf("… (%d earlier)", p.start), ""}}, rows...)
 			}
-		case "ReJSON-RL":
-			v, err := keyview.LoadJSON(ctx, c.Client, p.key)
-			if err != nil {
-				a.valueErr(err)
-				return
-			}
-			p.raw = v
-			rows = a.stringRowsDecoded()
 		case "stream":
 			items, err := keyview.LoadStream(ctx, c.Client, p.key, p.lastID, 0)
 			if err != nil {
@@ -168,7 +165,7 @@ func (a *App) stringRowsDecoded() [][2]string {
 	}
 	p.usedCodec = used.Name()
 	p.decoded = text
-	return stringRows(text)
+	return [][2]string{{"value", text}}
 }
 
 // valueCodec resolves the codec for the current string view.
@@ -195,7 +192,7 @@ func (a *App) valueCodec() encode.Codec {
 // cycleValueCodec steps through auto → builtins → externals.
 func (a *App) cycleValueCodec() {
 	p := a.valPage
-	if p == nil || p.kind != "string" {
+	if p == nil || (p.kind != "string" && p.kind != "ReJSON-RL") {
 		a.flash("codec applies to string values", a.th.Dim)
 		return
 	}
@@ -216,20 +213,109 @@ func (a *App) cycleValueCodec() {
 	a.renderValue()
 }
 
-func stringRows(v string) [][2]string {
+func (a *App) stringRows(v string) [][2]string {
 	if !strings.Contains(v, "\n") {
 		return [][2]string{{"value", v}}
 	}
-	lines := strings.Split(v, "\n")
-	rows := make([][2]string, len(lines))
-	for i, l := range lines {
-		rows[i] = [2]string{strconv.Itoa(i + 1), l}
-	}
-	return rows
+	return [][2]string{{"value", v}}
 }
 
 func formatScore(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+// ---- universal tree view --------------------------------------------------
+
+// buildValueTree converts the current page into one value tree: containers
+// become objects/arrays, scalars classify, and any field that decodes to
+// JSON nests further (msgpack/gzip/php included).
+func (a *App) buildValueTree() *jtree.Node {
+	p := a.valPage
+	if p == nil {
+		return nil
+	}
+	switch p.kind {
+	case "string", "ReJSON-RL":
+		if t := jtree.FromJSON(p.decoded); t != nil {
+			return t.WithItem(0)
+		}
+		if n := jtree.ScalarLeaf("", p.decoded); n != nil {
+			return n.WithItem(0)
+		}
+	case "set": // array of members
+		b := &jtree.Node{Kind: jtree.KindArray, Expanded: true}
+		for i, r := range p.rows {
+			if strings.HasPrefix(r[0], "… (") {
+				continue
+			}
+			b.Children = append(b.Children, nodeForRaw("", r[0]).WithItem(i))
+		}
+		return b
+	case "zset": // object member → score
+		b := &jtree.Node{Kind: jtree.KindObject, Expanded: true}
+		for i, r := range p.rows {
+			score, err := strconv.ParseFloat(r[1], 64)
+			if err != nil {
+				score = 0
+			}
+			b.Children = append(b.Children, jtree.Leaf(r[0], formatScore(score), jtree.KindNumber).WithItem(i))
+		}
+		return b
+	default: // hash: object; list/stream: array
+		array := p.kind == "list" || p.kind == "stream"
+		b := &jtree.Node{Kind: jtree.KindObject, Expanded: true}
+		if array {
+			b.Kind = jtree.KindArray
+		}
+		for i, r := range p.rows {
+			if strings.HasPrefix(r[0], "… (") { // pagination anchor row
+				b.Children = append(b.Children, jtree.Leaf(r[0], "", jtree.KindText).WithItem(i))
+				continue
+			}
+			if p.kind == "stream" {
+				kids := fieldsFromJoined(r[1])
+				n := &jtree.Node{Label: r[0], Kind: jtree.KindObject, Expanded: false, Children: kids}
+				b.Children = append(b.Children, n.WithItem(i))
+				continue
+			}
+			b.Children = append(b.Children, nodeForRaw(r[0], r[1]).WithItem(i))
+		}
+		return b
+	}
+	return nil
+}
+
+// nodeForRaw classifies one field/item payload: JSON-ish (incl. decoded
+// msgpack/gzip/php) nests as a branch, otherwise a classified scalar.
+func nodeForRaw(label, raw string) *jtree.Node {
+	if text, used, err := encode.Format([]byte(raw), nil); err == nil {
+		switch used.Name() {
+		case "json", "msgpack", "gzip", "php":
+			if t := jtree.FromJSON(text); t != nil {
+				t.Label = label
+				return t
+			}
+		}
+		return jtree.ScalarLeaf(label, text)
+	}
+	return jtree.ScalarLeaf(label, raw)
+}
+
+// fieldsFromJoined splits the stream "k=v k2=v2" joined form back to leaves.
+func fieldsFromJoined(s string) []*jtree.Node {
+	if s == "" {
+		return nil
+	}
+	var kids []*jtree.Node
+	for _, part := range strings.Fields(s) {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			kids = append(kids, jtree.Leaf(part, "", jtree.KindText))
+			continue
+		}
+		kids = append(kids, jtree.ScalarLeaf(k, v))
+	}
+	return kids
 }
 
 func kindLabel(kind string) string {
@@ -246,8 +332,10 @@ func (a *App) renderValueTitle(n int) {
 		return
 	}
 	t := fmt.Sprintf(" [%s]%s[%s] · %s", hex(a.th.Title), p.key, hex(a.th.Dim), kindLabel(p.kind))
-	if p.kind == "string" && p.usedCodec != "" {
-		t += fmt.Sprintf(" · %s", p.usedCodec)
+	if p.kind == "string" || p.kind == "ReJSON-RL" {
+		if p.usedCodec != "" {
+			t += fmt.Sprintf(" · %s", p.usedCodec)
+		}
 	}
 	t += fmt.Sprintf(" · %d", n)
 	if p.hasMore {
@@ -256,114 +344,119 @@ func (a *App) renderValueTitle(n int) {
 	a.value.SetTitle(t + " ")
 }
 
-// jsonColorOf maps token classes to theme colors.
-func jsonColorOf(th theme.Theme, c encode.JSONClass) string {
-	switch c {
-	case encode.JSONKey:
-		return hex(th.JSONKey)
-	case encode.JSONString:
-		return hex(th.JSONString)
-	case encode.JSONNumber:
-		return hex(th.JSONNumber)
-	case encode.JSONBool:
-		return hex(th.JSONBool)
-	case encode.JSONNull:
-		return hex(th.JSONNull)
-	}
-	return hex(th.Dim)
-}
-
-// renderValueJSON shows a syntax-highlighted document in the text view.
-func (a *App) renderValueJSON(text string) {
-	var b strings.Builder
-	for _, seg := range encode.HighlightJSON(text) {
-		if seg.Class == encode.JSONPunct {
-			b.WriteString(seg.Text)
-			continue
-		}
-		b.WriteString("[" + jsonColorOf(a.th, seg.Class) + "]" +
-			tview.Escape(seg.Text) + "[-:-]")
-	}
-	a.valueText.SetText(b.String())
-	a.valueText.ScrollToBeginning()
-	a.valuePages.SwitchToPage("json")
-}
-
-// useJSONView reports whether the current decoded string is JSON — either
-// stored as JSON or produced by the msgpack/gzip/php codecs.
-func (a *App) useJSONView() bool {
-	p := a.valPage
-	if p == nil || (p.kind != "string" && p.kind != "ReJSON-RL") {
-		return false
-	}
-	switch p.usedCodec {
-	case "json", "msgpack", "gzip", "php":
-		return true
-	}
-	return false
-}
-
 func (a *App) renderValue() {
 	p := a.valPage
 	if p == nil {
 		return
 	}
-	if a.useJSONView() {
-		a.renderValueTitle(1)
-		a.renderValueJSON(p.decoded)
+	a.value.Clear()
+	if p.tree == nil {
+		p.tree = a.buildValueTree()
+	}
+	if p.tree == nil {
+		a.value.SetCell(1, 0, cell("(empty)", a.th.Dim).SetSelectable(false))
+		a.renderValueTitle(0)
 		return
 	}
-	a.valuePages.SwitchToPage("table")
-	a.value.Clear()
-	h1, h2 := valueHeaders(p.kind)
-	a.value.SetCell(0, 0, cell(h1, a.th.Dim).SetSelectable(false))
-	a.value.SetCell(0, 1, cell(h2, a.th.Dim).SetSelectable(false).SetExpansion(1))
-	for i, r := range p.rows {
-		c1 := cell(r[0], valueCol1Color(a.th, p.kind)).SetMaxWidth(24)
-		v2 := r[1]
-		if p.kind != "string" && p.kind != "ReJSON-RL" {
-			v2 = encode.DisplayValue(r[1], 160) // view-only; edits use raw
-		}
-		if p.kind == "string" || p.kind == "ReJSON-RL" {
-			c1 = cell(r[0], a.th.Dim).SetMaxWidth(8)
-		}
+	p.treeRows = jtree.Rows(p.tree)
+	for i, r := range p.treeRows {
+		label := strings.Repeat("  ", max(r.Depth-1, 0)) + r.Marker + " " + r.Node.Label
+		c1 := cell(label, a.labelColor(r)).SetExpansion(1)
 		a.value.SetCell(i+1, 0, c1)
-		a.value.SetCell(i+1, 1, cell(v2, a.th.Text).SetExpansion(1))
+		if r.Branch {
+			v := ""
+			if r.Summary != "" {
+				v = r.Summary
+			}
+			a.value.SetCell(i+1, 1, cell(v, a.th.Dim))
+			continue
+		}
+		a.value.SetCell(i+1, 1, cell(a.scalarText(r.Node), a.scalarColor(r.Node)))
 	}
-	if len(p.rows) == 0 {
+	a.renderValueTitle(len(p.treeRows))
+	if len(p.treeRows) == 0 {
 		a.value.SetCell(1, 0, cell("(empty)", a.th.Dim).SetSelectable(false))
 	}
 	a.value.Select(1, 0)
 }
 
-func valueHeaders(kind string) (string, string) {
-	switch kind {
-	case "hash":
-		return "field", "value"
-	case "set":
-		return "member", ""
-	case "zset":
-		return "member", "score"
-	case "list":
-		return "index", "value"
-	case "stream":
-		return "id", "fields"
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-	return "line", "value"
+	return b
 }
 
-func valueCol1Color(th theme.Theme, kind string) tcell.Color {
-	switch kind {
-	case "hash":
-		return th.TypeString
-	case "set":
-		return th.TypeSet
-	case "zset":
-		return th.TypeZSet
-	case "stream":
-		return th.TypeStream
+// scalarText renders a leaf value: strings quoted, numbers/bools bare.
+func (a *App) scalarText(n *jtree.Node) string {
+	switch n.Kind {
+	case jtree.KindString:
+		return `"` + n.Value + `"`
+	case jtree.KindNull:
+		return "null"
+	case jtree.KindText:
+		v := strings.ReplaceAll(n.Value, "\n", "\\n")
+		if r := []rune(v); len(r) > 200 {
+			return string(r[:200]) + "…"
+		}
+		return v
 	}
-	return th.Dim
+	return n.Value
+}
+
+func (a *App) scalarColor(n *jtree.Node) tcell.Color {
+	switch n.Kind {
+	case jtree.KindString:
+		return (a.th.JSONString)
+	case jtree.KindNumber:
+		return (a.th.JSONNumber)
+	case jtree.KindBool:
+		return (a.th.JSONBool)
+	case jtree.KindNull:
+		return (a.th.JSONNull)
+	case jtree.KindObject, jtree.KindArray:
+		return (a.th.Title)
+	}
+	return (a.th.Text)
+}
+
+func (a *App) labelColor(r jtree.Row) tcell.Color {
+	if r.Branch && r.Depth == 1 {
+		return (a.th.Title)
+	}
+	if r.Depth == 1 {
+		return (a.th.Title)
+	}
+	return (a.th.Text)
+}
+
+// valueToggle flips the branch under the cursor (Enter/l on the value pane).
+// valueSelectedRow maps the tree cursor back to its raw page item.
+func (a *App) valueSelectedRow() ([2]string, int, bool) {
+	p := a.valPage
+	if p == nil || p.treeRows == nil {
+		return [2]string{}, 0, false
+	}
+	row, _ := a.value.GetSelection()
+	if row <= 0 || row > len(p.treeRows) {
+		return [2]string{}, 0, false
+	}
+	idx := p.treeRows[row-1].Node.ItemIdx
+	if idx < 0 || idx >= len(p.rows) {
+		return [2]string{}, 0, false
+	}
+	return p.rows[idx], idx, true
+}
+
+func (a *App) valueToggle() {
+	p := a.valPage
+	if p == nil || p.tree == nil {
+		return
+	}
+	row, _ := a.value.GetSelection()
+	if jtree.ToggleVisible(p.tree, row-1) {
+		a.renderValue()
+	}
 }
 
 // prefetchAround bulk-loads type+ttl for rows near idx (visible window).

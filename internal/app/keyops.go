@@ -329,17 +329,6 @@ func (a *App) selectedKey() string {
 
 // ---- value item operations (value pane) ----------------------------------
 
-func (a *App) valueSelectedRow() ([2]string, int, bool) {
-	if a.valPage == nil {
-		return [2]string{}, 0, false
-	}
-	row, _ := a.value.GetSelection()
-	if row <= 0 || row > len(a.valPage.rows) {
-		return [2]string{}, 0, false
-	}
-	return a.valPage.rows[row-1], row - 1, true
-}
-
 func (a *App) refreshValueAndMeta() {
 	if a.valPage == nil {
 		return
@@ -355,7 +344,7 @@ func (a *App) editValueItem() {
 		return
 	}
 	item, _, ok := a.valueSelectedRow()
-	if !ok && !a.useJSONView() { // json view has no row selection
+	if !ok {
 		return
 	}
 	c := a.rc.Load()
@@ -517,12 +506,12 @@ func (a *App) delValueItem() {
 	if c == nil {
 		return
 	}
-	item, _, ok := a.valueSelectedRow()
-	if !ok && !a.useJSONView() {
-		return
-	}
 	if p.kind == "string" || p.kind == "ReJSON-RL" {
 		a.deleteKey(p.key) // deleting the body == deleting the key
+		return
+	}
+	item, _, ok := a.valueSelectedRow()
+	if !ok {
 		return
 	}
 	run := func() {

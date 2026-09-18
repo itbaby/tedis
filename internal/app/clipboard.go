@@ -31,14 +31,16 @@ func (a *App) copyOSC52(text string) {
 // column, the tree copies the selected prefix, the key list copies the key.
 func (a *App) copySelected() {
 	switch a.tapp.GetFocus() {
-	case a.value, a.valueText:
-		if a.valPage != nil {
-			if a.valPage.decoded != "" {
-				a.copyOSC52(a.valPage.decoded)
-				return
-			}
-			if item, _, ok := a.valueSelectedRow(); ok {
-				a.copyOSC52(item[1])
+	case a.value:
+		if p := a.valPage; p != nil {
+			row, _ := a.value.GetSelection()
+			if row > 0 && row <= len(p.treeRows) {
+				n := p.treeRows[row-1].Node
+				if n.Kind == 0 || n.Kind == 1 { // branch: copy label
+					a.copyOSC52(n.Label)
+					return
+				}
+				a.copyOSC52(n.Value)
 				return
 			}
 		}
