@@ -29,6 +29,12 @@ type Theme struct {
 	Error tcell.Color
 	Warn  tcell.Color
 	OK    tcell.Color
+
+	JSONKey    tcell.Color
+	JSONString tcell.Color
+	JSONNumber tcell.Color
+	JSONBool   tcell.Color
+	JSONNull   tcell.Color
 }
 
 // Dark is the default palette (validated in the layout prototype).
@@ -53,6 +59,12 @@ var Dark = Theme{
 	Error: tcell.NewRGBColor(224, 108, 117),
 	Warn:  tcell.NewRGBColor(229, 192, 123),
 	OK:    tcell.NewRGBColor(152, 195, 121),
+
+	JSONKey:    tcell.NewRGBColor(97, 175, 239),  // #61afef
+	JSONString: tcell.NewRGBColor(152, 195, 121), // #98c379
+	JSONNumber: tcell.NewRGBColor(209, 154, 102), // #d19a66
+	JSONBool:   tcell.NewRGBColor(198, 120, 221), // #c678dd
+	JSONNull:   tcell.NewRGBColor(86, 182, 194),  // #56b6c2
 }
 
 // Light is a light-background variant.
@@ -77,6 +89,12 @@ var Light = Theme{
 	Error: tcell.NewRGBColor(180, 50, 60),
 	Warn:  tcell.NewRGBColor(160, 110, 20),
 	OK:    tcell.NewRGBColor(60, 120, 40),
+
+	JSONKey:    tcell.NewRGBColor(44, 90, 160),
+	JSONString: tcell.NewRGBColor(61, 122, 61),
+	JSONNumber: tcell.NewRGBColor(160, 90, 28),
+	JSONBool:   tcell.NewRGBColor(122, 61, 158),
+	JSONNull:   tcell.NewRGBColor(28, 122, 128),
 }
 
 // ByName returns the named theme (default: dark).

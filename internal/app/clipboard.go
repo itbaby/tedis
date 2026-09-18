@@ -31,8 +31,12 @@ func (a *App) copyOSC52(text string) {
 // column, the tree copies the selected prefix, the key list copies the key.
 func (a *App) copySelected() {
 	switch a.tapp.GetFocus() {
-	case a.value:
+	case a.value, a.valueText:
 		if a.valPage != nil {
+			if a.valPage.decoded != "" {
+				a.copyOSC52(a.valPage.decoded)
+				return
+			}
 			if item, _, ok := a.valueSelectedRow(); ok {
 				a.copyOSC52(item[1])
 				return

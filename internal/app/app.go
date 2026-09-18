@@ -32,10 +32,12 @@ type App struct {
 	pages *tview.Pages
 	panes *tview.Flex
 
-	ns    *tview.Table // namespace tree (filled in phase 2)
-	keys  *tview.Table // key list     (filled in phase 2)
-	value *tview.Table // value view   (filled in phase 2)
-	cmd   *tview.InputField
+	ns         *tview.Table    // namespace tree
+	keys       *tview.Table    // key list
+	value      *tview.Table    // value view: table mode
+	valueText  *tview.TextView // value view: syntax-highlighted JSON mode
+	valuePages *tview.Pages    // switches table ↔ json
+	cmd        *tview.InputField
 
 	statusL *tview.TextView
 	statusR *tview.TextView
@@ -77,6 +79,12 @@ func (a *App) build() {
 	a.keys.SetBorder(true).SetTitle(" keys ").SetTitleColor(a.th.Title).SetTitleAlign(tview.AlignLeft)
 	a.value = tview.NewTable().SetSelectable(true, false).SetFixed(1, 0)
 	a.value.SetBorder(true).SetTitle(" value ").SetTitleColor(a.th.Title).SetTitleAlign(tview.AlignLeft)
+	a.valueText = tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(false)
+	a.valueText.SetBorder(true).SetTitle(" value ").SetTitleColor(a.th.Title).SetTitleAlign(tview.AlignLeft)
+	a.valueText.SetInputCapture(a.valueLocalKeys)
+	a.valuePages = tview.NewPages().
+		AddPage("table", a.value, true, true).
+		AddPage("json", a.valueText, true, false)
 	for _, t := range []*tview.Table{a.ns, a.keys, a.value} {
 		t.SetSelectedStyle(tcell.StyleDefault.Background(a.th.SelBg).Foreground(a.th.SelFg))
 	}
@@ -101,7 +109,7 @@ func (a *App) build() {
 	a.panes = tview.NewFlex().
 		AddItem(a.ns, a.nsW, 1, false).
 		AddItem(a.keys, a.keysW, 1, true).
-		AddItem(a.value, 0, 3, false)
+		AddItem(a.valuePages, 0, 3, false)
 	panes := a.panes
 	status := tview.NewFlex().
 		AddItem(a.statusL, 0, 3, false).
@@ -112,7 +120,7 @@ func (a *App) build() {
 		AddItem(status, 1, 0, false)
 
 	a.pages = tview.NewPages().AddPage("main", root, true, true)
-	a.focusOrder = []tview.Primitive{a.ns, a.keys, a.value, a.cmd}
+	a.focusOrder = []tview.Primitive{a.ns, a.keys, a.valuePages, a.cmd}
 
 	a.tapp.SetInputCapture(a.globalKeys).
 		SetRoot(a.pages, true).
@@ -256,9 +264,10 @@ func (a *App) cycleFocus(d int) {
 
 // applyFocusStyles colors the focused pane's border brighter than the rest.
 func (a *App) applyFocusStyles() {
+	f := a.tapp.GetFocus()
 	for _, p := range a.focusOrder {
 		c := a.th.Border
-		if p == a.tapp.GetFocus() {
+		if p == f || (p == a.valuePages && (f == a.value || f == a.valueText)) {
 			c = a.th.BorderFocus
 		}
 		if b, ok := p.(interface{ SetBorderColor(tcell.Color) *tview.Box }); ok {

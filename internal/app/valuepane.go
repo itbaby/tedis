@@ -9,6 +9,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
+	"github.com/rivo/tview"
+
 	"tedis/internal/encode"
 	"tedis/internal/keyview"
 	"tedis/internal/theme"
@@ -29,6 +31,7 @@ type valuePage struct {
 
 	rows      [][2]string // rendered rows (col1, col2)
 	usedCodec string      // codec that produced the current rendering
+	decoded   string      // decoded text (JSON view source)
 }
 
 // loadValue opens the typed view for a key (called when selection settles).
@@ -159,9 +162,12 @@ func (a *App) stringRowsDecoded() [][2]string {
 	codec := a.valueCodec()
 	text, used, err := encode.Format([]byte(p.raw), codec)
 	if err != nil {
+		p.usedCodec = ""
+		p.decoded = ""
 		return [][2]string{{"error", err.Error()}}
 	}
 	p.usedCodec = used.Name()
+	p.decoded = text
 	return stringRows(text)
 }
 
@@ -250,11 +256,64 @@ func (a *App) renderValueTitle(n int) {
 	a.value.SetTitle(t + " ")
 }
 
+// jsonColorOf maps token classes to theme colors.
+func jsonColorOf(th theme.Theme, c encode.JSONClass) string {
+	switch c {
+	case encode.JSONKey:
+		return hex(th.JSONKey)
+	case encode.JSONString:
+		return hex(th.JSONString)
+	case encode.JSONNumber:
+		return hex(th.JSONNumber)
+	case encode.JSONBool:
+		return hex(th.JSONBool)
+	case encode.JSONNull:
+		return hex(th.JSONNull)
+	}
+	return hex(th.Dim)
+}
+
+// renderValueJSON shows a syntax-highlighted document in the text view.
+func (a *App) renderValueJSON(text string) {
+	var b strings.Builder
+	for _, seg := range encode.HighlightJSON(text) {
+		if seg.Class == encode.JSONPunct {
+			b.WriteString(seg.Text)
+			continue
+		}
+		b.WriteString("[" + jsonColorOf(a.th, seg.Class) + "]" +
+			tview.Escape(seg.Text) + "[-:-]")
+	}
+	a.valueText.SetText(b.String())
+	a.valueText.ScrollToBeginning()
+	a.valuePages.SwitchToPage("json")
+}
+
+// useJSONView reports whether the current decoded string is JSON — either
+// stored as JSON or produced by the msgpack/gzip/php codecs.
+func (a *App) useJSONView() bool {
+	p := a.valPage
+	if p == nil || (p.kind != "string" && p.kind != "ReJSON-RL") {
+		return false
+	}
+	switch p.usedCodec {
+	case "json", "msgpack", "gzip", "php":
+		return true
+	}
+	return false
+}
+
 func (a *App) renderValue() {
 	p := a.valPage
 	if p == nil {
 		return
 	}
+	if a.useJSONView() {
+		a.renderValueTitle(1)
+		a.renderValueJSON(p.decoded)
+		return
+	}
+	a.valuePages.SwitchToPage("table")
 	a.value.Clear()
 	h1, h2 := valueHeaders(p.kind)
 	a.value.SetCell(0, 0, cell(h1, a.th.Dim).SetSelectable(false))

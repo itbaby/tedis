@@ -355,7 +355,7 @@ func (a *App) editValueItem() {
 		return
 	}
 	item, _, ok := a.valueSelectedRow()
-	if !ok {
+	if !ok && !a.useJSONView() { // json view has no row selection
 		return
 	}
 	c := a.rc.Load()
@@ -518,10 +518,10 @@ func (a *App) delValueItem() {
 		return
 	}
 	item, _, ok := a.valueSelectedRow()
-	if !ok {
+	if !ok && !a.useJSONView() {
 		return
 	}
-	if p.kind == "string" {
+	if p.kind == "string" || p.kind == "ReJSON-RL" {
 		a.deleteKey(p.key) // deleting the body == deleting the key
 		return
 	}
