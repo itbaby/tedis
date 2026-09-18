@@ -150,12 +150,14 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 			break
 		}
 	}
-	// TextAreas swallow keys, so ctrl+s/esc must be bound on each of them
+	// TextAreas swallow keys, so ctrl+s/esc must be bound on each of them;
+	// also park the cursor at the start so long payloads open at their head
 	for i := 0; i < form.GetFormItemCount(); i++ {
 		ta, ok := form.GetFormItem(i).(*tview.TextArea)
 		if !ok {
 			continue
 		}
+		ta.SetText(ta.GetText(), false)
 		ta.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 			switch ev.Key() {
 			case tcell.KeyCtrlS:
@@ -352,7 +354,7 @@ func (a *App) editValueItem() {
 	if p == nil {
 		return
 	}
-	item, idx, ok := a.valueSelectedRow()
+	item, _, ok := a.valueSelectedRow()
 	if !ok {
 		return
 	}
@@ -361,7 +363,7 @@ func (a *App) editValueItem() {
 		return
 	}
 	switch p.kind {
-	case "string":
+	case "string", "ReJSON-RL":
 		codec := a.valueCodec()
 		text, used, err := encode.Format([]byte(p.raw), codec)
 		if err != nil {
@@ -376,6 +378,12 @@ func (a *App) editValueItem() {
 				} else {
 					a.flash("encode: "+err.Error()+" (saving as text)", a.th.Warn)
 				}
+			}
+			if p.kind == "ReJSON-RL" {
+				a.runMutation(func(ctx context.Context) error {
+					return keyview.SaveJSON(ctx, c.Client, p.key, string(raw))
+				})
+				return
 			}
 			a.saveStringKeepTTL(p.key, string(raw))
 		})
@@ -427,7 +435,6 @@ func (a *App) editValueItem() {
 	case "stream":
 		a.flash("stream entries are immutable (d to delete)", a.th.Dim)
 	}
-	_ = idx
 }
 
 // newValueItem adds an item (n key on the value pane).
@@ -463,8 +470,11 @@ func (a *App) newValueItem() {
 		})
 	case "zset":
 		a.editorModal("add member · "+p.key, []editField{{"member", "", false}, {"score", "0", false}}, func(vals []string) {
-			score, _ := strconv.ParseFloat(vals[1], 64)
 			a.runMutation(func(ctx context.Context) error {
+				score, err := strconv.ParseFloat(vals[1], 64)
+				if err != nil {
+					return err
+				}
 				return keyview.SaveZSetMember(ctx, c.Client, p.key, vals[0], score)
 			})
 		})

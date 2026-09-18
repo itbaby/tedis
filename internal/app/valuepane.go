@@ -105,6 +105,14 @@ func (a *App) fetchValuePage() {
 				// keep the window anchored: show "…" marker for earlier items
 				rows = append([][2]string{{fmt.Sprintf("… (%d earlier)", p.start), ""}}, rows...)
 			}
+		case "ReJSON-RL":
+			v, err := keyview.LoadJSON(ctx, c.Client, p.key)
+			if err != nil {
+				a.valueErr(err)
+				return
+			}
+			p.raw = v
+			rows = a.stringRowsDecoded()
 		case "stream":
 			items, err := keyview.LoadStream(ctx, c.Client, p.key, p.lastID, 0)
 			if err != nil {
@@ -169,7 +177,7 @@ func (a *App) valueCodec() encode.Codec {
 			for _, r := range c.P.Rules {
 				rules = append(rules, encode.Rule{Pattern: r.Pattern, Type: r.Type, Encoder: r.Encoder})
 			}
-			if name := encode.Resolve(rules, p.key, "string"); name != "" {
+			if name := encode.Resolve(rules, p.key, p.kind); name != "" {
 				return encode.ByName(name)
 			}
 		}
@@ -218,13 +226,20 @@ func formatScore(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
+func kindLabel(kind string) string {
+	if kind == "ReJSON-RL" {
+		return "json"
+	}
+	return kind
+}
+
 func (a *App) renderValueTitle(n int) {
 	p := a.valPage
 	if p == nil {
 		a.value.SetTitle(" value ")
 		return
 	}
-	t := fmt.Sprintf(" [%s]%s[%s] · %s", hex(a.th.Title), p.key, hex(a.th.Dim), p.kind)
+	t := fmt.Sprintf(" [%s]%s[%s] · %s", hex(a.th.Title), p.key, hex(a.th.Dim), kindLabel(p.kind))
 	if p.kind == "string" && p.usedCodec != "" {
 		t += fmt.Sprintf(" · %s", p.usedCodec)
 	}

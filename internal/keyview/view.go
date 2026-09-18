@@ -7,6 +7,7 @@ package keyview
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -223,4 +224,40 @@ func AddStreamEntry(ctx context.Context, rdb redis.Cmdable, key, field, val stri
 
 func DelStreamEntry(ctx context.Context, rdb redis.Cmdable, key, id string) error {
 	return rdb.XDel(ctx, key, id).Err()
+}
+
+// ---- RedisJSON ------------------------------------------------------------
+
+// LoadJSON returns the whole JSON document (JSON.GET $). The JSONPath form
+// wraps the root in a single-element array; unwrap it when that is exactly
+// the shape, so users edit the document itself.
+func LoadJSON(ctx context.Context, rdb JSONRunner, key string) (string, error) {
+	v, err := rdb.Do(ctx, "JSON.GET", key, "$").Result()
+	if err != nil {
+		return "", err
+	}
+	var text string
+	switch x := v.(type) {
+	case string:
+		text = x
+	case []byte:
+		text = string(x)
+	default:
+		text = fmt.Sprint(v)
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal([]byte(text), &arr) == nil && len(arr) == 1 {
+		return string(arr[0]), nil
+	}
+	return text, nil
+}
+
+// SaveJSON replaces the root document (JSON.SET $).
+func SaveJSON(ctx context.Context, rdb JSONRunner, key, val string) error {
+	return rdb.Do(ctx, "JSON.SET", key, "$", val).Err()
+}
+
+// JSONRunner runs raw commands (*redis.Client and friends satisfy it).
+type JSONRunner interface {
+	Do(ctx context.Context, args ...interface{}) *redis.Cmd
 }
