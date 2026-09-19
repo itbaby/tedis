@@ -67,6 +67,29 @@ func TestRowsAndToggle(t *testing.T) {
 	}
 }
 
+func TestRailsAndBraces(t *testing.T) {
+	// object with two branches: children of the first get "│ " rails,
+	// children of the last get "  "
+	root := Branch("", false, true,
+		Branch("a", false, true, Leaf("x", "1", KindNumber)),
+		Branch("b", false, true, Leaf("y", "2", KindNumber)),
+	)
+	rows := Rows(root)
+	// rows: [0]=▸? a expanded → "▾ a {", [1]=x rails "│ ", [2]="▾ b {", [3]=y rails "  "
+	if rows[0].Open != "{" || rows[2].Open != "{" {
+		t.Fatalf("open braces: %+v %+v", rows[0], rows[2])
+	}
+	if rows[1].Rails != "│ " || rows[3].Rails != "  " {
+		t.Fatalf("rails: %q %q", rows[1].Rails, rows[3].Rails)
+	}
+	// collapsed branch keeps summary, no open brace
+	root.Children[0].Expanded = false
+	rows = Rows(root)
+	if rows[0].Summary != "{1}" || rows[0].Open != "" {
+		t.Fatalf("collapsed: %+v", rows[0])
+	}
+}
+
 func TestWithItemStamps(t *testing.T) {
 	root := Branch("", false, true,
 		Branch("obj", false, true, Leaf("a", "1", KindNumber))).WithItem(7)

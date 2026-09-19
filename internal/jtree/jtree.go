@@ -163,36 +163,57 @@ type Row struct {
 	Depth   int
 	Branch  bool
 	Marker  string // ▸ / ▾ / " "
+	Rails   string // indent guides ("│ " per ancestor with later siblings)
 	Summary string // "{3}" / "[2]" for collapsed branches
+	Open    string // "{" / "[" shown on expanded branches
 }
 
-// Rows renders visible rows depth-first, honoring collapse state.
+// Rows renders visible rows depth-first, honoring collapse state. Children
+// carry indent rails: "│ " under each ancestor that still has siblings
+// below, plain spaces under a last child.
 func Rows(root *Node) []Row {
 	var out []Row
-	walk(root, -1, &out)
+	walk(root, -1, "", &out)
 	return out
 }
 
-func walk(n *Node, depth int, out *[]Row) {
-	for _, c := range n.Children {
+func walk(n *Node, depth int, rails string, out *[]Row) {
+	for i, c := range n.Children {
 		depth := depth + 1
+		isLast := i == len(n.Children)-1
 		if c.Kind == KindObject || c.Kind == KindArray {
 			marker, summary := "▸", ""
-			if len(c.Children) == 0 {
-				marker = "▾"
-			} else if c.Expanded {
+			open := openBrace(c)
+			if len(c.Children) == 0 || c.Expanded {
 				marker = "▾"
 			} else {
 				summary = summaryFor(c)
+				open = ""
 			}
-			*out = append(*out, Row{Node: c, Depth: depth, Branch: true, Marker: marker, Summary: summary})
+			*out = append(*out, Row{Node: c, Depth: depth, Branch: true, Marker: marker,
+				Rails: rails, Summary: summary, Open: open})
 			if c.Expanded {
-				walk(c, depth, out)
+				childRails := rails + railFor(isLast)
+				walk(c, depth, childRails, out)
 			}
 			continue
 		}
-		*out = append(*out, Row{Node: c, Depth: depth, Marker: " "})
+		*out = append(*out, Row{Node: c, Depth: depth, Marker: " ", Rails: rails})
 	}
+}
+
+func railFor(isLast bool) string {
+	if isLast {
+		return "  "
+	}
+	return "│ "
+}
+
+func openBrace(n *Node) string {
+	if n.Kind == KindObject {
+		return "{"
+	}
+	return "["
 }
 
 func summaryFor(n *Node) string {

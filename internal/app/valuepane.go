@@ -360,14 +360,11 @@ func (a *App) renderValue() {
 	}
 	p.treeRows = jtree.Rows(p.tree)
 	for i, r := range p.treeRows {
-		label := strings.Repeat("  ", max(r.Depth-1, 0)) + r.Marker + " " + r.Node.Label
+		label := r.Rails + r.Marker + " " + r.Node.Label + " " + r.Open
 		c1 := cell(label, a.labelColor(r)).SetExpansion(1)
 		a.value.SetCell(i+1, 0, c1)
 		if r.Branch {
-			v := ""
-			if r.Summary != "" {
-				v = r.Summary
-			}
+			v := r.Summary
 			a.value.SetCell(i+1, 1, cell(v, a.th.Dim))
 			continue
 		}
