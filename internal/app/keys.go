@@ -346,14 +346,19 @@ func (a *App) openFilter() {
 		cur = a.scan.pattern
 	}
 	a.cmd.SetLabel(" / ").SetLabelColor(a.th.Dim).SetText("").
-		SetPlaceholder("match (current: " + cur + ")").
+		SetPlaceholder("substring · * ? glob · current: " + cur).
 		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
 	a.tapp.SetFocus(a.cmd)
 	a.cmd.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			p := strings.TrimSpace(a.cmd.GetText())
-			if p == "" {
+			switch {
+			case p == "":
 				p = "*"
+			case strings.ContainsAny(p, "*?["):
+				// expert glob, passed through to MATCH verbatim
+			default:
+				p = "*" + p + "*" // substring search, the intuitive default
 			}
 			a.restoreCmdBar()
 			a.startScan(p)

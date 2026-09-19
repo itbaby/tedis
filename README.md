@@ -41,7 +41,7 @@ tedis -u redis://10.0.0.5:6379 --ssh ec2-user@jump -i ~/.ssh/prod.pem
 
 | context | keys |
 |---|---|
-| global | `Tab` panes · `c` connections · `:` query · `/` filter · `r` rescan · `i` info · `s` settings · `0-9` db · `a` alert · `?` help · `q` quit |
+| global | `Tab` panes · `c` connections · `:` query · `/` filter (substring; `* ?` for glob) · `r` rescan · `i` info · `s` settings · `0-9` db · `a` alert · `?` help · `q` quit |
 | key list | `⏎` open · `d` delete · `t` ttl · `m` rename |
 | value pane | `e`/`⏎` edit · `d` delete item · `n` new · `v` codec · `,`/`.` page |
 | query page | `^R` run line/selection · `^A` alert · `^P`/`^N` history · `Esc` close |
