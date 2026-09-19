@@ -183,7 +183,11 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'r':
 			if a.scan != nil {
-				a.startScan(a.scan.pattern)
+				if a.scan.fuzzy != "" {
+					a.startFuzzy(a.scan.fuzzy)
+				} else {
+					a.startScan(a.scan.pattern)
+				}
 			}
 			return nil
 		case 'q':

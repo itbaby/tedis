@@ -11,6 +11,7 @@ import (
 
 	"tedis/internal/config"
 	"tedis/internal/conn"
+	fz "tedis/internal/fuzzy"
 	"tedis/internal/scanner"
 	"tedis/internal/theme"
 )
@@ -24,6 +25,7 @@ const listWindow = 60
 type scanState struct {
 	cancel  context.CancelFunc
 	pattern string
+	fuzzy   string // non-empty: client-side fuzzy filter over a full scan
 	tree    *scanner.Tree
 	keys    []string
 	seen    map[string]bool
@@ -67,6 +69,16 @@ func (a *App) connProfile() *config.Profile {
 // startScan kicks off a cancellable SCAN for pattern and streams results
 // into the tree + key list.
 func (a *App) startScan(pattern string) {
+	a.startScanF(pattern, "")
+}
+
+// startFuzzy scans everything and filters client-side with fzf-style
+// ranking; the pattern bar keeps the ~query as the display form.
+func (a *App) startFuzzy(terms string) {
+	a.startScanF("~"+terms, terms)
+}
+
+func (a *App) startScanF(pattern, terms string) {
 	c := a.rc.Load()
 	if c == nil {
 		a.flash("not connected", a.th.Error)
@@ -77,22 +89,35 @@ func (a *App) startScan(pattern string) {
 	a.renderKeyList()
 	a.keys.SetTitle(fmt.Sprintf(" keys · %s · scanning… ", pattern))
 	s := a.scan
+	s.fuzzy = terms
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	profile := c.P
 	count := profile.ScanCount
+	scanMatch := pattern
+	if terms != "" {
+		scanMatch = "*"
+	}
 
 	go func() {
-		err := scanner.Scan(ctx, c.Client, pattern, count, func(batch []string) bool {
+		err := scanner.Scan(ctx, c.Client, scanMatch, count, func(batch []string) bool {
 			a.tapp.QueueUpdateDraw(func() {
+				if terms != "" {
+					batch = fz.Filter(terms, batch)
+				}
 				for _, k := range batch {
 					if s.seen[k] {
 						continue
 					}
 					s.seen[k] = true
-					s.tree.Add(k)
+					if terms == "" {
+						s.tree.Add(k)
+					}
 					s.keys = append(s.keys, k)
 					s.scanned++
+				}
+				if terms != "" {
+					s.keys = fz.RankTop(terms, s.keys, 500)
 				}
 				a.renderTree()
 				a.renderKeyList()
@@ -116,6 +141,14 @@ func (a *App) startScan(pattern string) {
 
 func (a *App) renderTree() {
 	if a.scan == nil {
+		return
+	}
+	if a.scan.fuzzy != "" {
+		a.ns.Clear()
+		a.ns.SetCell(1, 0, cell("~"+a.scan.fuzzy, a.th.Title))
+		a.ns.SetCell(2, 0, cell(fmt.Sprintf("%d matched", len(a.scan.keys)), a.th.Dim))
+		a.ns.Select(1, 0)
+		a.treeRows = nil
 		return
 	}
 	t := a.scan.tree
@@ -346,12 +379,19 @@ func (a *App) openFilter() {
 		cur = a.scan.pattern
 	}
 	a.cmd.SetLabel(" / ").SetLabelColor(a.th.Dim).SetText("").
-		SetPlaceholder("substring · * ? glob · current: " + cur).
+		SetPlaceholder("substring · ~fuzzy · * ? glob · current: " + cur).
 		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
 	a.tapp.SetFocus(a.cmd)
 	a.cmd.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			p := strings.TrimSpace(a.cmd.GetText())
+			a.restoreCmdBar()
+			if strings.HasPrefix(p, "~") {
+				if q := strings.TrimSpace(p[1:]); q != "" {
+					a.startFuzzy(q)
+				}
+				return
+			}
 			switch {
 			case p == "":
 				p = "*"
@@ -360,7 +400,6 @@ func (a *App) openFilter() {
 			default:
 				p = "*" + p + "*" // substring search, the intuitive default
 			}
-			a.restoreCmdBar()
 			a.startScan(p)
 			return
 		}
