@@ -44,6 +44,7 @@ type App struct {
 
 	nsW, keysW int // pane widths (adjustable with < and >)
 
+	graph      *graphView
 	scan       *scanState
 	treeRows   []scanner.Row
 	listOffset int
@@ -216,7 +217,7 @@ func (a *App) inTextInput() bool {
 		*tview.Checkbox, *tview.DropDown:
 		return true
 	}
-	for _, name := range []string{"confirm", "prompt", "editor", "connect", "help"} {
+	for _, name := range []string{"confirm", "prompt", "editor", "connect", "help", "graph", "query", "info", "settings"} {
 		if a.pages.HasPage(name) {
 			return true
 		}
@@ -436,6 +437,9 @@ func (a *App) valueLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'v':
 			a.cycleValueCodec()
+			return nil
+		case 'g':
+			a.openGraph()
 			return nil
 		case 'y':
 			a.copySelected()
