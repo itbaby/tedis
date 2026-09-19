@@ -20,6 +20,7 @@ run: build
 	./bin/$(BIN)
 
 # Populate demo data (all codecs + container types) into a redis
+SEED_ADDR ?= 127.0.0.1:6379
 seed:
 	go run ./cmd/seed -addr $(SEED_ADDR)
 
