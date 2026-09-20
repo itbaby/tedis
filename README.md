@@ -20,15 +20,16 @@ that starts in milliseconds, survives SSH hops, and happily handles millions
 of keys. Every action is one keystroke away.
 
 ```
-┌ local ────────────────┐┌ keys · users* · 2501 ─────────────────┐┌ users:1635 · string · json · 4 ┐
-│*                  2.5k ││key              type   ttl    size    ││                                  │
-│▸ users            2.5k ││users:1635  string    52m    48B       ││▾ profile {                       │
-│▸ session           501 ││users:2995  …                          │││   name   "Ada Lovelace"         │
-│                        ││                                       │││   roles  ["admin", "dev"]       │
-│                        ││                                       │││ ▸ prefs  {"theme": "dark"}      │
-└────────────────────────┘└───────────────────────────────────────┘││   logins 42                     │
-                                                                    │▸ orders  [3 items]                │
-local · db0 · Redis 8 · 4.6k keys · 182µs                           └──────────────────────────────────┘
+┌ local ────────────────┐┌ keys · users* · 2501 ─────────────────┐┌ users:1635 · string · json · 4 ──┐
+│*                  2.5k││key              type   ttl   size     ││▾ profile {                       │
+│▸ users            2.5k││users:1635       string 52m   48B      ││   name    "Ada Lovelace"         │
+│▸ session          501 ││users:2995       …                     ││   roles   ["admin", "dev"]       │
+│                       ││                                       ││   ▸ prefs  {"theme": "dark"}     │
+│                       ││                                       ││   logins   42                    │
+│                       ││                                       ││▸ orders   [3 items]              │
+│                       ││                                       ││                                  │
+└───────────────────────┘└───────────────────────────────────────┘└──────────────────────────────────┘
+local · db0 · Redis 8 · 4.6k keys · 182µs
 c conn  : query  / filter  r rescan  i info  s settings  a alert:off  ? help  q quit
 ```
 
