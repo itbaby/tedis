@@ -26,6 +26,7 @@ func (a *App) openSettings() {
 
 	form := tview.NewForm().SetButtonsAlign(tview.AlignCenter).
 		SetFieldBackgroundColor(tcell.ColorDefault)
+	form.SetItemPadding(0)
 	form.SetLabelColor(a.th.Dim)
 	form.AddDropDown("theme", []string{"dark", "light"}, themeIdx, func(opt string, _ int) {
 		if opt != "" {
@@ -67,7 +68,7 @@ func (a *App) openSettings() {
 	form.AddButton("cancel", func() { a.closeModal("settings") })
 	form.SetCancelFunc(func() { a.closeModal("settings") })
 	form.SetBorder(true).SetTitle(" settings ").SetTitleColor(a.th.Title)
-	a.showModal("settings", form, 56, 14)
+	a.showModal("settings", form, 56, 11)
 }
 
 // applySettings activates settings that have runtime effects.

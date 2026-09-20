@@ -75,6 +75,7 @@ func (a *App) confirmModal(title string, body []string, confirmLabel string, fn 
 // promptModal asks for one line of input.
 func (a *App) promptModal(title, label, initial string, fn func(string)) {
 	form := tview.NewForm().SetButtonsAlign(tview.AlignCenter).SetFieldBackgroundColor(tcell.ColorDefault)
+	form.SetItemPadding(0)
 	form.SetLabelColor(a.th.Dim)
 	input := initial
 	ok := func() {
@@ -103,7 +104,7 @@ func (a *App) promptModal(title, label, initial string, fn func(string)) {
 		return ev
 	})
 	form.SetBorder(true).SetTitle(" " + title + " ").SetTitleColor(a.th.Title)
-	a.showModal("prompt", form, 56, 9)
+	a.showModal("prompt", form, 56, 7)
 }
 
 // editorModal edits one or more labeled fields (key/value, score, …) in a
@@ -144,7 +145,7 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 	}
 
 	form := tview.NewForm().
-		SetItemPadding(1).
+		SetItemPadding(0).
 		SetLabelColor(a.th.Dim).
 		SetFieldBackgroundColor(tcell.ColorDefault).
 		SetFieldTextColor(a.th.Text).
@@ -175,11 +176,7 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 		a.addInput(form, f.label, f.initial, 0, nil)
 		content++
 	}
-	height += content + len(fields) // items + padding between them
-	height += 2                     // blank row + button row
-	if len(fields) == 1 {
-		height-- // no padding between a single item
-	}
+	height += content + 2 // items + blank row + button row
 
 	save := func() {
 		vals := make([]string, len(fields))
@@ -210,7 +207,7 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 	if height > th-4 {
 		height = th - 4
 	}
-	a.showModal("editor", root, mw, height)
+	a.showModal("editor", root, mw, height+1) // +1 for the hint row
 }
 
 // formText reads the current text of a form item (input or text area).
