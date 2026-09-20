@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -69,7 +70,7 @@ func (a *App) openConnect() {
 		list.SetCell(0, 1, tview.NewTableCell("address").SetTextColor(a.th.Dim).SetSelectable(false).SetExpansion(1))
 		list.SetCell(0, 2, tview.NewTableCell("flags").SetTextColor(a.th.Dim).SetSelectable(false))
 		row := 1
-		for _, name := range sortedProfileNames(a.cfg) {
+		for _, name := range slices.Sorted(maps.Keys(a.cfg.Profiles)) {
 			p, _ := a.cfg.Get(name)
 			flags := ""
 			if p.Cluster {
@@ -280,15 +281,6 @@ func buttonBar(a *App, btns []barBtn) *tview.Flex {
 		bar.AddItem(nil, 2, 0, false)
 	}
 	return bar
-}
-
-func sortedProfileNames(c *config.Config) []string {
-	names := make([]string, 0, len(c.Profiles))
-	for n := range c.Profiles {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
 }
 
 type badField string

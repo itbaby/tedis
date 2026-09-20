@@ -93,11 +93,13 @@ func (a *App) openQuery() {
 		}()
 	}
 	a.query.setTitle()
+	a.openModals["query"] = true
 	a.pages.ShowPage("query")
 	a.tapp.SetFocus(a.query.editor)
 }
 
 func (a *App) closeQuery() {
+	delete(a.openModals, "query")
 	a.pages.HidePage("query")
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()
@@ -358,5 +360,7 @@ func (q *queryPage) saveHistory() {
 		q.history = q.history[len(q.history)-maxLines:]
 	}
 	os.MkdirAll(filepath.Dir(p), 0o755)
-	os.WriteFile(p, []byte(strings.Join(q.history, "\n")+"\n"), 0o644)
+	if err := os.WriteFile(p, []byte(strings.Join(q.history, "\n")+"\n"), 0o644); err != nil {
+		q.app.log.Warn("history: save failed", "err", err)
+	}
 }

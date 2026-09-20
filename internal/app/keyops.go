@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -10,8 +12,10 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"tedis/internal/conn"
 	"tedis/internal/encode"
 	"tedis/internal/i18n"
+	"tedis/internal/jtree"
 	"tedis/internal/keyview"
 )
 
@@ -105,68 +109,120 @@ func (a *App) promptModal(title, label, initial string, fn func(string)) {
 	a.showModal("prompt", form, 56, 9)
 }
 
-// editorModal edits multi-line text with an optional extra numeric field
-// (e.g. zset score). onSave receives the field values.
+// editorModal edits one or more labeled fields (key/value, score, …) in a
+// standard form layout: aligned labels, tab/⏎ walks fields and buttons,
+// ⌃s saves from anywhere. Multi-line fields get a text area sized to their
+// content. onSave receives the field values in order.
 func (a *App) editorModal(title string, fields []editField, onSave func(vals []string)) {
-	form := tview.NewForm().SetButtonsAlign(tview.AlignCenter).SetFieldBackgroundColor(tcell.ColorDefault)
-	form.SetLabelColor(a.th.Dim)
-	vals := make([]string, len(fields))
-	for i, f := range fields {
-		vals[i] = f.initial // changed callbacks fire on edits, not on init
-		if f.multiline {
-			form.AddTextArea(f.label, f.initial, 48, 6, 0, func(s string) { vals[i] = s })
-		} else {
-			form.AddInputField(f.label, f.initial, 40, nil, func(s string) { vals[i] = s })
+	_, _, tw, th := a.pages.GetRect() // root page spans the screen and is laid out
+	// Width follows the data: label column + longest content line, never
+	// narrower than the breadcrumb title, capped by the screen.
+	labelW, maxLine := 0, 0
+	for _, f := range fields {
+		if w := tview.TaggedStringWidth(f.label); w > labelW {
+			labelW = w
+		}
+		for _, ln := range strings.Split(f.initial, "\n") {
+			if w := tview.TaggedStringWidth(ln); w > maxLine {
+				maxLine = w
+			}
 		}
 	}
+	mw := labelW + maxLine + 8 // label, spacing, content, padding + border
+	if t := tview.TaggedStringWidth(title) + 6; t > mw {
+		mw = t
+	}
+	if mw > tw-10 {
+		mw = tw - 10
+	}
+	if mw < 34 {
+		mw = 34
+	}
+	maxTA := th - 16
+	if maxTA > 20 {
+		maxTA = 20
+	}
+	if maxTA < 4 {
+		maxTA = 4
+	}
+
+	form := tview.NewForm().
+		SetItemPadding(1).
+		SetLabelColor(a.th.Dim).
+		SetFieldBackgroundColor(tcell.ColorDefault).
+		SetFieldTextColor(a.th.Text).
+		SetButtonsAlign(tview.AlignCenter)
+	form.SetBackgroundColor(tcell.ColorDefault)
+	form.SetBorder(true).SetTitle(" " + title + " ").SetTitleColor(a.th.Title)
+	height := 4 // border + inner padding
+	content := 0
+	for i, f := range fields {
+		if f.multiline {
+			lines := strings.Count(f.initial, "\n") + 1
+			if lines < 3 {
+				lines = 3
+			}
+			if lines > maxTA {
+				lines = maxTA
+			}
+			form.AddTextArea(f.label, "", 0, lines, 0, nil)
+			ta := form.GetFormItem(i).(*tview.TextArea)
+			ta.SetText(f.initial, false) // cursor at head, like a JSON viewer
+			ta.SetWrap(true)
+			ta.SetPlaceholder("(empty)")
+			content += lines
+			continue
+		}
+		form.AddInputField(f.label, f.initial, 0, nil, nil)
+		content++
+	}
+	height += content + len(fields) // items + padding between them
+	height += 2                     // blank row + button row
+	if len(fields) == 1 {
+		height-- // no padding between a single item
+	}
+
 	save := func() {
+		vals := make([]string, len(fields))
+		for i := range fields {
+			vals[i] = formText(form.GetFormItem(i))
+		}
 		a.closeModal("editor")
 		onSave(vals)
 	}
 	form.AddButton("save", save)
 	form.AddButton("cancel", func() { a.closeModal("editor") })
 	form.SetCancelFunc(func() { a.closeModal("editor") })
-	// Inside TextArea, Tab/Enter are text keys — offer explicit save/abort.
 	form.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		switch ev.Key() {
-		case tcell.KeyCtrlS:
+		if ev.Key() == tcell.KeyCtrlS {
 			save()
-			return nil
-		case tcell.KeyEscape:
-			a.closeModal("editor")
 			return nil
 		}
 		return ev
 	})
-	form.SetBorder(true).SetTitle(" " + title + " ").SetTitleColor(a.th.Title)
-	// focus the value field first: edits are far more common than renames
-	for i, f := range fields {
-		if f.multiline {
-			form.SetFocus(i)
-			break
-		}
+
+	hint := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+	hint.SetBackgroundColor(tcell.ColorDefault)
+	hint.SetText(fmt.Sprintf("[%s]⌃s[-] save  ·  [%s]tab[-] next  ·  [%s]esc[-] cancel",
+		hex(a.th.Dim), hex(a.th.Dim), hex(a.th.Dim)))
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(form, 0, 1, true).
+		AddItem(hint, 1, 0, false)
+	if height > th-4 {
+		height = th - 4
 	}
-	// TextAreas swallow keys, so ctrl+s/esc must be bound on each of them;
-	// also park the cursor at the start so long payloads open at their head
-	for i := 0; i < form.GetFormItemCount(); i++ {
-		ta, ok := form.GetFormItem(i).(*tview.TextArea)
-		if !ok {
-			continue
-		}
-		ta.SetText(ta.GetText(), false)
-		ta.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-			switch ev.Key() {
-			case tcell.KeyCtrlS:
-				save()
-				return nil
-			case tcell.KeyEscape:
-				a.closeModal("editor")
-				return nil
-			}
-			return ev
-		})
+	a.showModal("editor", root, mw, height)
+}
+
+// formText reads the current text of a form item (input or text area).
+func formText(item tview.FormItem) string {
+	switch f := item.(type) {
+	case *tview.InputField:
+		return f.GetText()
+	case *tview.TextArea:
+		return f.GetText()
 	}
-	a.showModal("editor", form, 58, 12+len(fields))
+	return ""
 }
 
 type editField struct {
@@ -185,19 +241,12 @@ func (a *App) deleteKey(key string) {
 	}
 	skip := c.P.SkipDeleteConfirm
 	do := func() {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			err := c.Client.Del(ctx, key).Err()
-			a.tapp.QueueUpdateDraw(func() {
-				if err != nil {
-					a.flash("del: "+err.Error(), a.th.Error)
-					return
-				}
-				a.dropKeyLocal(key)
-				a.flash("deleted "+key, a.th.OK)
-			})
-		}()
+		a.runAsync("del: ", func(ctx context.Context) error {
+			return c.Client.Del(ctx, key).Err()
+		}, func() {
+			a.dropKeyLocal(key)
+			a.flash("deleted "+key, a.th.OK)
+		})
 	}
 	if skip {
 		do()
@@ -215,11 +264,8 @@ func (a *App) dropKeyLocal(key string) {
 	s.tree.Remove(key)
 	delete(s.seen, key)
 	delete(s.meta, key)
-	for i, k := range s.keys {
-		if k == key {
-			s.keys = append(s.keys[:i], s.keys[i+1:]...)
-			break
-		}
+	if i := slices.Index(s.keys, key); i >= 0 {
+		s.keys = slices.Delete(s.keys, i, i+1)
 	}
 	a.keys.SetTitle(fmt.Sprintf(" keys · %s · %d ", s.pattern, len(s.keys)))
 	a.renderTree()
@@ -238,32 +284,26 @@ func (a *App) editKeyTTL(key string) {
 		if c == nil {
 			return
 		}
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			var err error
-			var msg string
-			if v == "" {
-				err = c.Client.Persist(ctx, key).Err()
-				msg = "ttl removed " + key
-			} else {
-				secs, e := strconv.Atoi(v)
-				if e != nil || secs <= 0 {
-					a.tapp.QueueUpdateDraw(func() { a.flash("ttl: want positive seconds", a.th.Error) })
-					return
-				}
-				err = c.Client.Expire(ctx, key, time.Duration(secs)*time.Second).Err()
-				msg = "ttl set " + key + " → " + v + "s"
-			}
-			a.tapp.QueueUpdateDraw(func() {
-				if err != nil {
-					a.flash("ttl: "+err.Error(), a.th.Error)
-					return
-				}
-				a.flash(msg, a.th.OK)
-				a.loadMeta(key, -1)
+		if v == "" {
+			a.runAsync("ttl: ", func(ctx context.Context) error {
+				return c.Client.Persist(ctx, key).Err()
+			}, func() {
+				a.flash("ttl removed "+key, a.th.OK)
+				a.reloadMeta(key)
 			})
-		}()
+			return
+		}
+		secs, e := strconv.Atoi(v)
+		if e != nil || secs <= 0 {
+			a.flash("ttl: want positive seconds", a.th.Error)
+			return
+		}
+		a.runAsync("ttl: ", func(ctx context.Context) error {
+			return c.Client.Expire(ctx, key, time.Duration(secs)*time.Second).Err()
+		}, func() {
+			a.flash("ttl set "+key+" → "+v+"s", a.th.OK)
+			a.reloadMeta(key)
+		})
 	})
 }
 
@@ -274,34 +314,24 @@ func (a *App) renameKey(key string) {
 		if c == nil || name == "" || name == key {
 			return
 		}
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			err := c.Client.Rename(ctx, key, name).Err()
-			a.tapp.QueueUpdateDraw(func() {
-				if err != nil {
-					a.flash("rename: "+err.Error(), a.th.Error)
-					return
+		a.runAsync("rename: ", func(ctx context.Context) error {
+			return c.Client.Rename(ctx, key, name).Err()
+		}, func() {
+			s := a.scan
+			if s != nil {
+				s.tree.Remove(key)
+				s.tree.Add(name)
+				delete(s.seen, key)
+				delete(s.meta, key)
+				if i := slices.Index(s.keys, key); i >= 0 {
+					s.keys[i] = name
 				}
-				s := a.scan
-				if s != nil {
-					s.tree.Remove(key)
-					s.tree.Add(name)
-					delete(s.seen, key)
-					delete(s.meta, key)
-					for i, k := range s.keys {
-						if k == key {
-							s.keys[i] = name
-							break
-						}
-					}
-					a.renderTree()
-					a.renderKeyList()
-				}
-				a.loadMeta(name, -1)
-				a.flash("renamed → "+name, a.th.OK)
-			})
-		}()
+				a.renderTree()
+				a.renderKeyList()
+			}
+			a.loadMeta(name, -1)
+			a.flash("renamed → "+name, a.th.OK)
+		})
 	})
 }
 
@@ -326,7 +356,7 @@ func (a *App) refreshValueAndMeta() {
 		return
 	}
 	a.fetchValuePage()
-	a.loadMeta(a.valPage.key, -1)
+	a.reloadMeta(a.valPage.key)
 }
 
 // editValueItem edits the selected row according to the key type.
@@ -344,7 +374,13 @@ func (a *App) editValueItem() {
 		return
 	}
 	switch p.kind {
-	case "string", "ReJSON-RL":
+	case kindString, kindJSON:
+		if p.tree != nil {
+			if n := a.selectedTreeNode(); n != nil && n != p.tree {
+				a.editJSONNode(n)
+				return
+			}
+		}
 		codec := a.valueCodec()
 		text, used, err := encode.Format([]byte(p.raw), codec)
 		if err != nil {
@@ -360,7 +396,7 @@ func (a *App) editValueItem() {
 					a.flash("encode: "+err.Error()+" (saving as text)", a.th.Warn)
 				}
 			}
-			if p.kind == "ReJSON-RL" {
+			if p.kind == kindJSON {
 				a.runMutation(func(ctx context.Context) error {
 					return keyview.SaveJSON(ctx, c.Client, p.key, string(raw))
 				})
@@ -368,7 +404,10 @@ func (a *App) editValueItem() {
 			}
 			a.saveStringKeepTTL(p.key, string(raw))
 		})
-	case "hash":
+	case kindHash:
+		if a.editNestedNode() {
+			return
+		}
 		text, enc := decodeField(item[1])
 		a.editorModal("edit field · "+item[0], []editField{{"field", item[0], false}, {"value", text, true}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
@@ -380,7 +419,10 @@ func (a *App) editValueItem() {
 				return keyview.SaveHashField(ctx, c.Client, p.key, vals[0], enc(vals[1]))
 			})
 		})
-	case "list":
+	case kindList:
+		if a.editNestedNode() {
+			return
+		}
 		index, _ := strconv.ParseInt(item[0], 10, 64)
 		text, enc := decodeField(item[1])
 		a.editorModal("edit item", []editField{{"value", text, true}}, func(vals []string) {
@@ -388,7 +430,10 @@ func (a *App) editValueItem() {
 				return keyview.SaveListItem(ctx, c.Client, p.key, index, enc(vals[0]))
 			})
 		})
-	case "set":
+	case kindSet:
+		if a.editNestedNode() {
+			return
+		}
 		text, enc := decodeField(item[0])
 		a.editorModal("edit member", []editField{{"member", text, false}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
@@ -401,7 +446,7 @@ func (a *App) editValueItem() {
 				return keyview.SaveSetMember(ctx, c.Client, p.key, enc(vals[0]))
 			})
 		})
-	case "zset":
+	case kindZSet:
 		text, enc := decodeField(item[0])
 		a.editorModal("edit member", []editField{{"member", text, false}, {"score", item[1], false}}, func(vals []string) {
 			score, err := strconv.ParseFloat(vals[1], 64)
@@ -417,9 +462,176 @@ func (a *App) editValueItem() {
 				return keyview.SaveZSetMember(ctx, c.Client, p.key, enc(vals[0]), score)
 			})
 		})
-	case "stream":
+	case kindStream:
 		a.flash("stream entries are immutable (d to delete)", a.th.Dim)
 	}
+}
+
+// editJSONNode edits just the selected subtree of a decoded JSON payload
+// (string/ReJSON keys): the node's own value opens in the editor and is
+// merged back into the full document on save.
+func (a *App) editJSONNode(node *jtree.Node) {
+	p := a.valPage
+	c := a.rc.Load()
+	if c == nil || p.tree == nil {
+		return
+	}
+	initial := node.Value
+	if node.IsBranch() {
+		initial = jtree.Marshal(node)
+	}
+	title := strings.Join(jtree.Path(p.tree, node), " › ")
+	// Object members can be renamed; array elements/roots cannot.
+	parent := jtree.FindParent(p.tree, node)
+	rename := parent != nil && parent.Kind == jtree.KindObject
+	fields := []editField{{"value", initial, true}}
+	if rename {
+		fields = []editField{{"field", node.Label, false}, {"value", initial, true}}
+	}
+	a.editorModal("edit · "+title, fields, func(vals []string) {
+		name, text := node.Label, vals[0]
+		if rename {
+			name, text = vals[0], vals[1]
+			if strings.TrimSpace(name) == "" {
+				a.flash("edit: field name must not be empty", a.th.Error)
+				return
+			}
+			if name != node.Label {
+				for _, sib := range parent.Children {
+					if sib != node && sib.Label == name {
+						a.flash("edit: duplicate field "+name, a.th.Error)
+						return
+					}
+				}
+			}
+		}
+		var repl *jtree.Node
+		if node.IsBranch() {
+			if repl = jtree.FromJSON(text); repl == nil {
+				a.flash("edit: invalid JSON for "+title, a.th.Error)
+				return
+			}
+		} else {
+			var err error
+			if repl, err = scalarFromEdit(node.Kind, text); err != nil {
+				a.flash("edit · "+title+": "+err.Error(), a.th.Error)
+				return
+			}
+		}
+		repl = repl.WithItem(node.ItemIdx)
+		if !p.tree.Replace(node, repl) {
+			a.flash("edit: row moved, retry", a.th.Warn)
+			return
+		}
+		repl.Label = name
+		if p.kind != kindString && p.kind != kindJSON {
+			a.saveMemberDoc(p, c, repl)
+			return
+		}
+		merged := jtree.Marshal(p.tree)
+		if p.kind == kindJSON {
+			a.runMutation(func(ctx context.Context) error {
+				return keyview.SaveJSON(ctx, c.Client, p.key, merged)
+			})
+			return
+		}
+		raw := merged
+		if _, used, err := encode.Format([]byte(p.raw), a.valueCodec()); err == nil && used != nil {
+			if b, e := used.Encode(merged); e == nil {
+				raw = string(b)
+			} else {
+				a.flash("encode: "+e.Error()+" (saving as text)", a.th.Warn)
+			}
+		}
+		a.saveStringKeepTTL(p.key, raw)
+	})
+}
+
+// editNestedNode reports whether the cursor sits inside a JSON document
+// nested in a container member (hash field, list item, set member); if so
+// it opens the row-scoped editor for just that node and returns true.
+func (a *App) editNestedNode() bool {
+	p := a.valPage
+	if p.tree == nil {
+		return false
+	}
+	n := a.selectedTreeNode()
+	if n == nil || n == p.tree || jtree.FindParent(p.tree, n) == p.tree {
+		return false // root or whole-member row: the member editor handles it
+	}
+	a.editJSONNode(n)
+	return true
+}
+
+// saveMemberDoc merges an edited node back into the container member
+// holding it: climb to the member's own subtree, marshal it whole, re-encode
+// through that member's codec, and save just that one member.
+func (a *App) saveMemberDoc(p *valuePage, c *conn.Conn, n *jtree.Node) {
+	for {
+		up := jtree.FindParent(p.tree, n)
+		if up == nil || up == p.tree {
+			break
+		}
+		n = up
+	}
+	idx := n.ItemIdx
+	if idx < 0 || idx >= len(p.rows) {
+		a.flash("edit: row moved, retry", a.th.Warn)
+		return
+	}
+	row := p.rows[idx]
+	switch p.kind {
+	case kindHash:
+		doc := jtree.Marshal(n)
+		_, enc := decodeField(row[1])
+		a.runMutation(func(ctx context.Context) error {
+			return keyview.SaveHashField(ctx, c.Client, p.key, row[0], enc(doc))
+		})
+	case kindList:
+		index, err := strconv.ParseInt(row[0], 10, 64)
+		if err != nil {
+			a.flash("edit: bad list index", a.th.Error)
+			return
+		}
+		doc := jtree.Marshal(n)
+		_, enc := decodeField(row[1])
+		a.runMutation(func(ctx context.Context) error {
+			return keyview.SaveListItem(ctx, c.Client, p.key, index, enc(doc))
+		})
+	case kindSet:
+		doc := jtree.Marshal(n)
+		_, enc := decodeField(row[0])
+		newRaw := enc(doc)
+		a.runMutation(func(ctx context.Context) error {
+			if err := keyview.DelSetMember(ctx, c.Client, p.key, row[0]); err != nil {
+				return err
+			}
+			return keyview.SaveSetMember(ctx, c.Client, p.key, newRaw)
+		})
+	}
+}
+
+// scalarFromEdit rebuilds a leaf from editor text, keeping the original
+// JSON type: strings are edited unquoted, numbers/bools validated as-is.
+func scalarFromEdit(k jtree.Kind, text string) (*jtree.Node, error) {
+	switch k {
+	case jtree.KindString, jtree.KindText:
+		return jtree.Leaf("", text, jtree.KindString), nil
+	case jtree.KindNumber:
+		if !json.Valid([]byte(text)) {
+			return nil, fmt.Errorf("want a number")
+		}
+		return jtree.Leaf("", text, jtree.KindNumber), nil
+	case jtree.KindBool:
+		if text != "true" && text != "false" {
+			return nil, fmt.Errorf("want true or false")
+		}
+		return jtree.Leaf("", text, jtree.KindBool), nil
+	}
+	if n := jtree.FromJSON(text); n != nil {
+		return n, nil
+	}
+	return nil, fmt.Errorf("want a JSON value")
 }
 
 // decodeField decodes a container field for editing and returns an encoder
@@ -449,27 +661,27 @@ func (a *App) newValueItem() {
 		return
 	}
 	switch p.kind {
-	case "string":
+	case kindString:
 		a.flash("strings are edited with e", a.th.Dim)
-	case "hash":
+	case kindHash:
 		a.editorModal("add field · "+p.key, []editField{{"field", "", false}, {"value", "", true}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
 				return keyview.SaveHashField(ctx, c.Client, p.key, vals[0], vals[1])
 			})
 		})
-	case "list":
+	case kindList:
 		a.editorModal("push item · "+p.key, []editField{{"value", "", true}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
 				return keyview.AddListItem(ctx, c.Client, p.key, vals[0], false)
 			})
 		})
-	case "set":
+	case kindSet:
 		a.editorModal("add member · "+p.key, []editField{{"member", "", false}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
 				return keyview.SaveSetMember(ctx, c.Client, p.key, vals[0])
 			})
 		})
-	case "zset":
+	case kindZSet:
 		a.editorModal("add member · "+p.key, []editField{{"member", "", false}, {"score", "0", false}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
 				score, err := strconv.ParseFloat(vals[1], 64)
@@ -479,7 +691,7 @@ func (a *App) newValueItem() {
 				return keyview.SaveZSetMember(ctx, c.Client, p.key, vals[0], score)
 			})
 		})
-	case "stream":
+	case kindStream:
 		a.editorModal("append entry · "+p.key, []editField{{"field", "", false}, {"value", "", true}}, func(vals []string) {
 			a.runMutation(func(ctx context.Context) error {
 				return keyview.AddStreamEntry(ctx, c.Client, p.key, vals[0], vals[1])
@@ -498,7 +710,7 @@ func (a *App) delValueItem() {
 	if c == nil {
 		return
 	}
-	if p.kind == "string" || p.kind == "ReJSON-RL" {
+	if isTextKind(p.kind) {
 		a.deleteKey(p.key) // deleting the body == deleting the key
 		return
 	}
@@ -509,15 +721,15 @@ func (a *App) delValueItem() {
 	run := func() {
 		a.runMutation(func(ctx context.Context) error {
 			switch p.kind {
-			case "hash":
+			case kindHash:
 				return keyview.DelHashField(ctx, c.Client, p.key, item[0])
-			case "set":
+			case kindSet:
 				return keyview.DelSetMember(ctx, c.Client, p.key, item[0])
-			case "zset":
+			case kindZSet:
 				return keyview.DelZSetMember(ctx, c.Client, p.key, item[0])
-			case "list":
+			case kindList:
 				return keyview.DelListItem(ctx, c.Client, p.key, item[1])
-			case "stream":
+			case kindStream:
 				return keyview.DelStreamEntry(ctx, c.Client, p.key, item[0])
 			}
 			return nil
@@ -552,18 +764,33 @@ func (a *App) saveStringKeepTTL(key, val string) {
 	})
 }
 
-// runMutation executes a write in the background, then refreshes value+meta.
-func (a *App) runMutation(fn func(ctx context.Context) error) {
+// runAsync executes a Redis write off the UI thread and reports the result
+// back on it: on error it flashes label+err, on success it calls onOK. The
+// three key-level mutations (delete/ttl/rename) share this shape.
+func (a *App) runAsync(label string, fn func(ctx context.Context) error, onOK func()) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		err := fn(ctx)
 		a.tapp.QueueUpdateDraw(func() {
 			if err != nil {
-				a.flash(err.Error(), a.th.Error)
+				a.flash(label+err.Error(), a.th.Error)
 				return
 			}
-			a.refreshValueAndMeta()
+			onOK()
 		})
 	}()
+}
+
+// reloadMeta drops the cached size/TTL for key and refetches it.
+func (a *App) reloadMeta(key string) {
+	if a.scan != nil {
+		delete(a.scan.meta, key) // size/TTL changed: force refetch
+	}
+	a.loadMeta(key, -1)
+}
+
+// runMutation executes a write in the background, then refreshes value+meta.
+func (a *App) runMutation(fn func(ctx context.Context) error) {
+	a.runAsync("", fn, a.refreshValueAndMeta)
 }

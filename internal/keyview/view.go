@@ -9,7 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 
 	"github.com/redis/go-redis/v9"
@@ -189,21 +190,12 @@ func LoadStream(ctx context.Context, rdb redis.Cmdable, key, from string, count 
 	items := make([]StreamEntry, 0, len(msgs))
 	for _, m := range msgs {
 		e := StreamEntry{ID: m.ID}
-		for _, f := range sortedKeys(m.Values) {
+		for _, f := range slices.Sorted(maps.Keys(m.Values)) {
 			e.Fields = append(e.Fields, [2]string{f, toStr(m.Values[f])})
 		}
 		items = append(items, e)
 	}
 	return items, nil
-}
-
-func sortedKeys(m map[string]any) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
 }
 
 func toStr(v any) string {
@@ -236,15 +228,7 @@ func LoadJSON(ctx context.Context, rdb JSONRunner, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var text string
-	switch x := v.(type) {
-	case string:
-		text = x
-	case []byte:
-		text = string(x)
-	default:
-		text = fmt.Sprint(v)
-	}
+	text := toStr(v)
 	var arr []json.RawMessage
 	if json.Unmarshal([]byte(text), &arr) == nil && len(arr) == 1 {
 		return string(arr[0]), nil

@@ -277,39 +277,45 @@ func (a *App) keysSelectionChanged(row, _ int) {
 	a.loadMeta(s.keys[idx], idx)
 }
 
-// loadMeta fetches metadata for the selected key (debounced) and refreshes
-// the visible row plus the value pane summary.
+// loadMeta shows the selected key's value; on a metadata cache miss it
+// debounces the fetch (time.AfterFunc) so fast scrolling never round-trips.
+// Only the newest selection (metaSeq) may update the UI.
 func (a *App) loadMeta(key string, idx int) {
-	a.metaSeq++
-	seq := a.metaSeq
 	c := a.rc.Load()
 	if c == nil {
 		return
 	}
+	seq := a.metaSeq.Add(1)
 	if m, ok := a.scan.meta[key]; ok {
 		a.loadValue(key, m.Type)
+		a.prefetchAround(idx)
+		return
 	}
 	a.prefetchAround(idx)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		m, err := c.KeyMeta(ctx, key)
-		time.Sleep(80 * time.Millisecond) // debounce: user may be scrolling fast
-		a.tapp.QueueUpdateDraw(func() {
-			if seq != a.metaSeq || a.scan == nil {
-				return
-			}
-			if err != nil {
-				m = conn.KeyMeta{Type: "?"}
-			}
-			a.scan.meta[key] = m
-			row, _ := a.keys.GetSelection()
-			if row > 0 && a.scan.keys[a.listOffset+row-1] == key {
-				a.fillKeyRow(row, a.listOffset+row-1)
-			}
-			a.loadValue(key, m.Type)
-		})
-	}()
+	time.AfterFunc(80*time.Millisecond, func() {
+		if a.metaSeq.Load() != seq { // selection moved on: skip the round trip
+			return
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			m, err := c.KeyMeta(ctx, key)
+			a.tapp.QueueUpdateDraw(func() {
+				if a.metaSeq.Load() != seq || a.scan == nil {
+					return
+				}
+				if err != nil {
+					m = conn.KeyMeta{Type: "?"}
+				}
+				a.scan.meta[key] = m
+				row, _ := a.keys.GetSelection()
+				if sel := a.listOffset + row - 1; row > 0 && sel >= 0 && sel < len(a.scan.keys) && a.scan.keys[sel] == key {
+					a.fillKeyRow(row, sel)
+				}
+				a.loadValue(key, m.Type)
+			})
+		}()
+	})
 }
 
 // ---- formatting helpers --------------------------------------------------
@@ -350,17 +356,17 @@ func sizeText(n int64) string {
 
 func typeColor(th theme.Theme, t string) tcell.Color {
 	switch t {
-	case "string":
+	case kindString:
 		return th.TypeString
-	case "hash":
+	case kindHash:
 		return th.TypeHash
-	case "list":
+	case kindList:
 		return th.TypeList
-	case "set":
+	case kindSet:
 		return th.TypeSet
-	case "zset":
+	case kindZSet:
 		return th.TypeZSet
-	case "stream":
+	case kindStream:
 		return th.TypeStream
 	}
 	return th.Dim

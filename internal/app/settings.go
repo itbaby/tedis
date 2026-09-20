@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"tedis/internal/config"
+	"tedis/internal/encode"
 	"tedis/internal/i18n"
 	"tedis/internal/theme"
 )
@@ -74,6 +75,7 @@ func (a *App) applySettings() {
 	i18n.Set(a.cfg.Settings.Language)
 	a.th = theme.ByName(a.cfg.Settings.Theme)
 	theme.Apply(a.th)
+	encode.ClearExternalCache() // user may have dropped in new encoder scripts
 	a.setHints()
 	a.flash("settings saved", a.th.OK)
 	// separator/fold/scan affect browsing: rescan with fresh profile defaults

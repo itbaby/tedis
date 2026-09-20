@@ -3,7 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -51,21 +52,21 @@ func (a *App) showInfo(raw string) {
 		tv.SetCell(row, 0, tview.NewTableCell(strings.ToLower(sec)).
 			SetTextColor(a.th.Title).SetSelectable(false))
 		row++
-		for _, k := range sortedKeysInfo(kv) {
+		for _, k := range slices.Sorted(maps.Keys(kv)) {
 			tv.SetCell(row, 0, tview.NewTableCell(" "+k).SetTextColor(a.th.Dim).SetSelectable(false))
 			tv.SetCell(row, 1, tview.NewTableCell(kv[k]).SetTextColor(a.th.Text).
 				SetSelectable(false).SetExpansion(1))
 			row++
 		}
 	}
-	for _, sec := range sortedKeysInfo(sections) {
+	for _, sec := range slices.Sorted(maps.Keys(sections)) {
 		if seen[sec] {
 			continue
 		}
 		tv.SetCell(row, 0, tview.NewTableCell(strings.ToLower(sec)).
 			SetTextColor(a.th.Title).SetSelectable(false))
 		row++
-		for _, k := range sortedKeysInfo(sections[sec]) {
+		for _, k := range slices.Sorted(maps.Keys(sections[sec])) {
 			tv.SetCell(row, 0, tview.NewTableCell(" "+k).SetTextColor(a.th.Dim).SetSelectable(false))
 			tv.SetCell(row, 1, tview.NewTableCell(sections[sec][k]).SetTextColor(a.th.Text).
 				SetSelectable(false).SetExpansion(1))
@@ -103,15 +104,6 @@ func parseInfo(raw string) map[string]map[string]string {
 		}
 	}
 	return out
-}
-
-func sortedKeysInfo[V any](m map[string]V) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
 }
 
 // switchDB selects another database and restarts browsing (standalone only).

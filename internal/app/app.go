@@ -23,11 +23,14 @@ import (
 
 // App owns the whole UI.
 type App struct {
-	tapp    *tview.Application
-	cfg     *config.Config
-	cfgPath string
-	th      theme.Theme
-	log     *slog.Logger
+	// modalPrev is the focused primitive when the first modal opened;
+	// closeModal returns focus there.
+	modalPrev tview.Primitive
+	tapp      *tview.Application
+	cfg       *config.Config
+	cfgPath   string
+	th        theme.Theme
+	log       *slog.Logger
 
 	pages *tview.Pages
 	panes *tview.Flex
@@ -47,10 +50,16 @@ type App struct {
 	treeRows   []scanner.Row
 	listOffset int
 	inFill     bool
-	metaSeq    int
 	valPage    *valuePage
 	query      *queryPage
 	focusOrder []tview.Primitive
+
+	// metaSeq/flashSeq are read from fetch goroutines/timers, hence atomic;
+	// both implement "only the latest request may update state".
+	metaSeq  atomic.Uint64
+	flashSeq atomic.Uint64
+
+	openModals map[string]bool // currently-visible modal/overlay page names
 
 	rc    atomic.Pointer[conn.Conn]
 	alert bool
@@ -59,11 +68,12 @@ type App struct {
 // New wires everything up. Run() starts the event loop.
 func New(cfg *config.Config, cfgPath string, log *slog.Logger) *App {
 	a := &App{
-		tapp:    tview.NewApplication(),
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		th:      theme.ByName(cfg.Settings.Theme),
-		log:     log,
+		tapp:       tview.NewApplication(),
+		cfg:        cfg,
+		cfgPath:    cfgPath,
+		th:         theme.ByName(cfg.Settings.Theme),
+		log:        log,
+		openModals: map[string]bool{},
 	}
 	a.build()
 	return a
@@ -159,6 +169,19 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyBacktab:
 		a.cycleFocus(-1)
 		return nil
+	// ⌘/⌥ + ←→ jump between panes (Meta arrives via the kitty keyboard
+	// protocol; Alt works in every terminal), but never while typing —
+	// mod-arrows there belong to the text field (word movement).
+	case tcell.KeyLeft:
+		if ev.Modifiers()&(tcell.ModMeta|tcell.ModAlt) != 0 {
+			a.cycleFocus(-1)
+			return nil
+		}
+	case tcell.KeyRight:
+		if ev.Modifiers()&(tcell.ModMeta|tcell.ModAlt) != 0 {
+			a.cycleFocus(+1)
+			return nil
+		}
 	case tcell.KeyRune:
 		switch ev.Rune() {
 		case '/':
@@ -219,12 +242,7 @@ func (a *App) inTextInput() bool {
 		*tview.Checkbox, *tview.DropDown:
 		return true
 	}
-	for _, name := range []string{"confirm", "prompt", "editor", "connect", "help", "graph", "query", "info", "settings"} {
-		if a.pages.HasPage(name) {
-			return true
-		}
-	}
-	return false
+	return len(a.openModals) > 0
 }
 
 // focusInPanes reports whether focus is on one of the main panes (not a
@@ -277,6 +295,9 @@ func (a *App) applyFocusStyles() {
 }
 
 func (a *App) showModal(name string, p tview.Primitive, w, h int) {
+	if len(a.openModals) == 0 { // remember which pane opened the modal
+		a.modalPrev = a.tapp.GetFocus()
+	}
 	centered := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(nil, 0, 1, false).
 		AddItem(
@@ -287,12 +308,18 @@ func (a *App) showModal(name string, p tview.Primitive, w, h int) {
 			h, 1, true,
 		).
 		AddItem(nil, 0, 1, false)
+	a.openModals[name] = true
 	a.pages.AddPage(name, centered, true, true)
 }
 
 func (a *App) closeModal(name string) {
+	delete(a.openModals, name)
 	a.pages.RemovePage(name)
-	a.tapp.SetFocus(a.keys)
+	if a.modalPrev != nil {
+		a.tapp.SetFocus(a.modalPrev) // back to the pane we launched from
+	} else {
+		a.tapp.SetFocus(a.keys)
+	}
 }
 
 func (a *App) openHelp() {
@@ -306,28 +333,30 @@ func (a *App) openHelp() {
 		}
 		return ev
 	})
-	a.showModal("help", tv, 56, 14)
+	a.showModal("help", tv, 56, 16)
 }
 
 func helpText(th theme.Theme) string {
 	dim, hi := hex(th.Dim), hex(th.Title)
 	return fmt.Sprintf(`[%s]navigation[-]
   [%s]Tab[-]%s cycle panes        [%s]arrows[-]%s move selection
+  [%s]⌘/⌥←→[-]%s jump panes (needs a kitty-protocol or Option-as-Esc terminal)
   [%s]/[-]%s filter keys          [%s]r[-]%s rescan      [%s]:[-]%s query
 
 [%s]key list[-]
   [%s]d[-]%s delete  [%s]t[-]%s ttl  [%s]m[-]%s rename  [%s]y[-]%s copy
 
 [%s]value pane[-]
-  [%s]e/⏎[-]%s edit item          [%s]d[-]%s delete item    [%s]n[-]%s new item
+  [%s]⏎[-]%s edit leaf / fold   [%s]e[-]%s edit any row   [%s]d[-]%s delete item  [%s]n[-]%s new item
+  [%s]l/←→[-]%s fold tree        [%s]v[-]%s codec          [%s]g[-]%s graph
   [%s].[-]%s next page            [%s],[-]%s prev page (list)
 
 [%s]connection[-]
   [%s]c[-]%s connect / profiles   [%s]a[-]%s alert mode     [%s]q[-]%s quit`,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
-		dim, hi, dim, hi, dim, hi, dim,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim,
-		dim, hi, dim, hi, dim, hi, dim)
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi,
+		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi)
 }
 
 // ---- status ------------------------------------------------------------
@@ -358,8 +387,12 @@ func (a *App) setStatusConnected(p *config.Profile, c *conn.Conn, nkeys int64, l
 
 func (a *App) flash(msg string, c tcell.Color) {
 	a.statusL.SetText(fmt.Sprintf("[%s]%s", hex(c), msg))
+	seq := a.flashSeq.Add(1)
 	go func() {
 		time.Sleep(3 * time.Second)
+		if a.flashSeq.Load() != seq {
+			return // a newer flash owns the status bar now
+		}
 		a.tapp.QueueUpdateDraw(func() {
 			if c := a.rc.Load(); c != nil {
 				if n, err := c.DBSize(context.Background()); err == nil {
@@ -427,12 +460,22 @@ func (a *App) keysLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 func (a *App) valueLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	switch ev.Key() {
 	case tcell.KeyEnter:
+		if n := a.selectedTreeNode(); n != nil && n.IsBranch() {
+			a.valueToggle() // ⏎ drills into branches; e edits them whole
+			return nil
+		}
+		a.editValueItem()
+		return nil
+	case tcell.KeyLeft, tcell.KeyRight:
 		a.valueToggle()
 		return nil
 	case tcell.KeyRune:
 		switch ev.Rune() {
 		case 'e':
 			a.editValueItem()
+			return nil
+		case 'l':
+			a.valueToggle()
 			return nil
 		case 'd':
 			a.delValueItem()

@@ -12,6 +12,7 @@ import (
 	"tedis/internal/encode"
 	"tedis/internal/jtree"
 	"tedis/internal/keyview"
+	"tedis/internal/theme"
 )
 
 // valuePage is the current page of the selected key's content.
@@ -34,12 +35,30 @@ type valuePage struct {
 	treeRows  []jtree.Row
 }
 
+// Redis key kinds used throughout the value layer (from TYPE).
+const (
+	kindString = "string"
+	kindHash   = "hash"
+	kindList   = "list"
+	kindSet    = "set"
+	kindZSet   = "zset"
+	kindStream = "stream"
+	kindJSON   = "ReJSON-RL" // RedisJSON module type
+)
+
+// isTextKind reports the whole-payload kinds (one string body) as opposed to
+// the container kinds (many items).
+func isTextKind(kind string) bool { return kind == kindString || kind == kindJSON }
+
 // loadValue opens the typed view for a key (called when selection settles).
 func (a *App) loadValue(key, kind string) {
 	a.valPage = &valuePage{key: key, kind: kind}
 	a.fetchValuePage()
 }
 
+// fetchValuePage loads one page in the background. The goroutine must not
+// touch p or app state: inputs are snapshotted up front and results are only
+// applied inside QueueUpdateDraw (which runs on the UI goroutine).
 func (a *App) fetchValuePage() {
 	p := a.valPage
 	if p == nil {
@@ -49,28 +68,46 @@ func (a *App) fetchValuePage() {
 	if c == nil {
 		return
 	}
+	key, kind := p.key, p.kind
+	cursor, start, lastID := p.cursor, p.start, p.lastID
+	var codec encode.Codec
+	if isTextKind(kind) {
+		codec = a.valueCodec()
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
 		var rows [][2]string
 		var more bool
-		switch p.kind {
-		case "string", "ReJSON-RL":
+		var raw, decoded, usedName string
+		var nextCur uint64
+		var total int64
+		lastIDOut := lastID
+		switch kind {
+		case kindString, kindJSON:
 			var v string
 			var err error
-			if p.kind == "ReJSON-RL" {
-				v, err = keyview.LoadJSON(ctx, c.Client, p.key)
+			if kind == kindJSON {
+				v, err = keyview.LoadJSON(ctx, c.Client, key)
 			} else {
-				v, err = keyview.LoadString(ctx, c.Client, p.key)
+				v, err = keyview.LoadString(ctx, c.Client, key)
 			}
 			if err != nil {
 				a.valueErr(err)
 				return
 			}
-			p.raw = v
-			rows = a.stringRowsDecoded()
-		case "hash":
-			next, items, err := keyview.LoadHash(ctx, c.Client, p.key, p.cursor, 0)
+			raw = v
+			text, used, ferr := encode.Format([]byte(v), codec)
+			if ferr != nil {
+				rows = [][2]string{{"error", ferr.Error()}}
+			} else {
+				decoded, usedName = text, used.Name()
+				rows = [][2]string{{"value", text}}
+			}
+		case kindHash:
+			next, items, err := keyview.LoadHash(ctx, c.Client, key, cursor, 0)
 			if err != nil {
 				a.valueErr(err)
 				return
@@ -78,9 +115,9 @@ func (a *App) fetchValuePage() {
 			for _, it := range items {
 				rows = append(rows, [2]string{it.Field, it.Value})
 			}
-			p.cursor, more = next, next != 0
-		case "set":
-			next, members, err := keyview.LoadSet(ctx, c.Client, p.key, p.cursor, 0)
+			nextCur, more = next, next != 0
+		case kindSet:
+			next, members, err := keyview.LoadSet(ctx, c.Client, key, cursor, 0)
 			if err != nil {
 				a.valueErr(err)
 				return
@@ -88,9 +125,9 @@ func (a *App) fetchValuePage() {
 			for _, m := range members {
 				rows = append(rows, [2]string{m, ""})
 			}
-			p.cursor, more = next, next != 0
-		case "zset":
-			next, items, err := keyview.LoadZSet(ctx, c.Client, p.key, p.cursor, 0)
+			nextCur, more = next, next != 0
+		case kindZSet:
+			next, items, err := keyview.LoadZSet(ctx, c.Client, key, cursor, 0)
 			if err != nil {
 				a.valueErr(err)
 				return
@@ -98,9 +135,9 @@ func (a *App) fetchValuePage() {
 			for _, it := range items {
 				rows = append(rows, [2]string{it.Member, formatScore(it.Score)})
 			}
-			p.cursor, more = next, next != 0
-		case "list":
-			items, total, err := keyview.LoadList(ctx, c.Client, p.key, p.start, 0)
+			nextCur, more = next, next != 0
+		case kindList:
+			items, tot, err := keyview.LoadList(ctx, c.Client, key, start, 0)
 			if err != nil {
 				a.valueErr(err)
 				return
@@ -108,13 +145,13 @@ func (a *App) fetchValuePage() {
 			for _, it := range items {
 				rows = append(rows, [2]string{strconv.FormatInt(it.Index, 10), it.Value})
 			}
-			p.total = total
-			more = p.start+int64(len(items)) < total
-			if p.start > 0 {
-				rows = append([][2]string{{fmt.Sprintf("… (%d earlier)", p.start), ""}}, rows...)
+			total = tot
+			more = start+int64(len(items)) < tot
+			if start > 0 {
+				rows = append([][2]string{{fmt.Sprintf("… (%d earlier)", start), ""}}, rows...)
 			}
-		case "stream":
-			items, err := keyview.LoadStream(ctx, c.Client, p.key, p.lastID, 0)
+		case kindStream:
+			items, err := keyview.LoadStream(ctx, c.Client, key, lastID, 0)
 			if err != nil {
 				a.valueErr(err)
 				return
@@ -128,15 +165,29 @@ func (a *App) fetchValuePage() {
 					b.WriteString(f[0] + "=" + f[1])
 				}
 				rows = append(rows, [2]string{it.ID, b.String()})
-				p.lastID = it.ID
+				lastIDOut = it.ID
 			}
 			more = len(items) > 0
 		default:
-			rows = [][2]string{{"(unsupported type: " + p.kind + ")", ""}}
+			rows = [][2]string{{"(unsupported type: " + kind + ")", ""}}
 		}
-		p.rows = rows
-		p.hasMore = more
-		a.tapp.QueueUpdateDraw(a.renderValue)
+		a.tapp.QueueUpdateDraw(func() {
+			if a.valPage != p { // selection moved on while this fetch was in flight
+				return
+			}
+			p.raw, p.rows, p.hasMore = raw, rows, more
+			p.usedCodec, p.decoded = usedName, decoded
+			switch kind {
+			case kindHash, kindSet, kindZSet:
+				p.cursor = nextCur
+			case kindList:
+				p.total = total
+			case kindStream:
+				p.lastID = lastIDOut
+			}
+			p.tree = nil // page changed: rebuild the tree on the next render
+			a.renderValue()
+		})
 	}()
 }
 
@@ -150,22 +201,6 @@ func (a *App) valueErr(err error) {
 		a.value.Clear()
 		a.value.SetCell(1, 0, cell(err.Error(), a.th.Error).SetSelectable(false))
 	})
-}
-
-// stringRowsDecoded renders the string payload through the active codec
-// (content rule first, else the manually chosen one, else auto-detect).
-func (a *App) stringRowsDecoded() [][2]string {
-	p := a.valPage
-	codec := a.valueCodec()
-	text, used, err := encode.Format([]byte(p.raw), codec)
-	if err != nil {
-		p.usedCodec = ""
-		p.decoded = ""
-		return [][2]string{{"error", err.Error()}}
-	}
-	p.usedCodec = used.Name()
-	p.decoded = text
-	return [][2]string{{"value", text}}
 }
 
 // valueCodec resolves the codec for the current string view.
@@ -192,7 +227,7 @@ func (a *App) valueCodec() encode.Codec {
 // cycleValueCodec steps through auto → builtins → externals.
 func (a *App) cycleValueCodec() {
 	p := a.valPage
-	if p == nil || (p.kind != "string" && p.kind != "ReJSON-RL") {
+	if p == nil || !isTextKind(p.kind) {
 		a.flash("codec applies to string values", a.th.Dim)
 		return
 	}
@@ -210,7 +245,7 @@ func (a *App) cycleValueCodec() {
 	}
 	next := names[(idx+1)%len(names)]
 	p.codecName = next
-	a.renderValue()
+	a.fetchValuePage() // re-decode + rebuild the tree with the new codec
 }
 
 func formatScore(f float64) string {
@@ -228,14 +263,14 @@ func (a *App) buildValueTree() *jtree.Node {
 		return nil
 	}
 	switch p.kind {
-	case "string", "ReJSON-RL":
+	case kindString, kindJSON:
 		if t := jtree.FromJSON(p.decoded); t != nil {
 			return t.WithItem(0)
 		}
 		if n := jtree.ScalarLeaf("", p.decoded); n != nil {
 			return n.WithItem(0)
 		}
-	case "set": // array of members
+	case kindSet: // array of members
 		b := &jtree.Node{Kind: jtree.KindArray, Expanded: true}
 		for i, r := range p.rows {
 			if strings.HasPrefix(r[0], "… (") {
@@ -244,7 +279,7 @@ func (a *App) buildValueTree() *jtree.Node {
 			b.Children = append(b.Children, nodeForRaw("", r[0]).WithItem(i))
 		}
 		return b
-	case "zset": // object member → score
+	case kindZSet: // object member → score
 		b := &jtree.Node{Kind: jtree.KindObject, Expanded: true}
 		for i, r := range p.rows {
 			score, err := strconv.ParseFloat(r[1], 64)
@@ -255,7 +290,7 @@ func (a *App) buildValueTree() *jtree.Node {
 		}
 		return b
 	default: // hash: object; list/stream: array
-		array := p.kind == "list" || p.kind == "stream"
+		array := p.kind == kindList || p.kind == kindStream
 		b := &jtree.Node{Kind: jtree.KindObject, Expanded: true}
 		if array {
 			b.Kind = jtree.KindArray
@@ -265,7 +300,7 @@ func (a *App) buildValueTree() *jtree.Node {
 				b.Children = append(b.Children, jtree.Leaf(r[0], "", jtree.KindText).WithItem(i))
 				continue
 			}
-			if p.kind == "stream" {
+			if p.kind == kindStream {
 				kids := fieldsFromJoined(r[1])
 				n := &jtree.Node{Label: r[0], Kind: jtree.KindObject, Expanded: false, Children: kids}
 				b.Children = append(b.Children, n.WithItem(i))
@@ -312,7 +347,7 @@ func fieldsFromJoined(s string) []*jtree.Node {
 }
 
 func kindLabel(kind string) string {
-	if kind == "ReJSON-RL" {
+	if kind == kindJSON {
 		return "json"
 	}
 	return kind
@@ -325,10 +360,8 @@ func (a *App) renderValueTitle(n int) {
 		return
 	}
 	t := fmt.Sprintf(" [%s]%s[%s] · %s", hex(a.th.Title), p.key, hex(a.th.Dim), kindLabel(p.kind))
-	if p.kind == "string" || p.kind == "ReJSON-RL" {
-		if p.usedCodec != "" {
-			t += fmt.Sprintf(" · %s", p.usedCodec)
-		}
+	if isTextKind(p.kind) && p.usedCodec != "" {
+		t += fmt.Sprintf(" · %s", p.usedCodec)
 	}
 	t += fmt.Sprintf(" · %d", n)
 	if p.hasMore {
@@ -361,7 +394,7 @@ func (a *App) renderValue() {
 			a.value.SetCell(i+1, 1, cell(v, a.th.Dim))
 			continue
 		}
-		a.value.SetCell(i+1, 1, cell(a.scalarText(r.Node), a.scalarColor(r.Node)))
+		a.value.SetCell(i+1, 1, cell(valueText(r.Node), nodeColor(a.th, r.Node)))
 	}
 	a.renderValueTitle(len(p.treeRows))
 	if len(p.treeRows) == 0 {
@@ -370,37 +403,38 @@ func (a *App) renderValue() {
 	a.value.Select(1, 0)
 }
 
-// scalarText renders a leaf value: strings quoted, numbers/bools bare.
-func (a *App) scalarText(n *jtree.Node) string {
-	switch n.Kind {
-	case jtree.KindString:
-		return `"` + n.Value + `"`
-	case jtree.KindNull:
-		return "null"
-	case jtree.KindText:
-		v := strings.ReplaceAll(n.Value, "\n", "\\n")
-		if r := []rune(v); len(r) > 200 {
-			return string(r[:200]) + "…"
-		}
-		return v
-	}
-	return n.Value
+// nodeText renders one leaf's display text (value pane + graph cards).
+func nodeText(n *jtree.Node) string {
+	return jtree.ScalarText(n)
 }
 
-func (a *App) scalarColor(n *jtree.Node) tcell.Color {
+// valueText is the value-pane form of nodeText: long text capped so wide
+// payloads don't thrash the table layout.
+func valueText(n *jtree.Node) string {
+	t := nodeText(n)
+	if n.Kind == jtree.KindText {
+		t = fit(t, 200)
+	}
+	return t
+}
+
+// nodeColor maps a tree node's kind to its theme color.
+func nodeColor(th theme.Theme, n *jtree.Node) tcell.Color {
 	switch n.Kind {
 	case jtree.KindString:
-		return (a.th.JSONString)
+		return th.JSONString
 	case jtree.KindNumber:
-		return (a.th.JSONNumber)
+		return th.JSONNumber
 	case jtree.KindBool:
-		return (a.th.JSONBool)
+		return th.JSONBool
 	case jtree.KindNull:
-		return (a.th.JSONNull)
-	case jtree.KindObject, jtree.KindArray:
-		return (a.th.Title)
+		return th.JSONNull
+	case jtree.KindObject:
+		return th.Title
+	case jtree.KindArray:
+		return th.TypeZSet
 	}
-	return (a.th.Text)
+	return th.Text
 }
 
 func (a *App) labelColor(r jtree.Row) tcell.Color {
@@ -410,7 +444,20 @@ func (a *App) labelColor(r jtree.Row) tcell.Color {
 	return a.th.Text
 }
 
-// valueToggle flips the branch under the cursor (Enter/l on the value pane).
+// selectedTreeNode returns the tree node under the value-pane cursor
+// (nil when there is none).
+func (a *App) selectedTreeNode() *jtree.Node {
+	p := a.valPage
+	if p == nil || len(p.treeRows) == 0 {
+		return nil
+	}
+	row, _ := a.value.GetSelection()
+	if row <= 0 || row > len(p.treeRows) {
+		return nil
+	}
+	return p.treeRows[row-1].Node
+}
+
 // valueSelectedRow maps the tree cursor back to its raw page item.
 func (a *App) valueSelectedRow() ([2]string, int, bool) {
 	p := a.valPage
@@ -428,15 +475,26 @@ func (a *App) valueSelectedRow() ([2]string, int, bool) {
 	return p.rows[idx], idx, true
 }
 
+// valueToggle flips the branch under the cursor (Enter/l on the value pane).
 func (a *App) valueToggle() {
 	p := a.valPage
 	if p == nil || p.tree == nil {
 		return
 	}
 	row, _ := a.value.GetSelection()
-	if jtree.ToggleVisible(p.tree, row-1) {
-		a.renderValue()
+	if row <= 0 || row > len(p.treeRows) {
+		return
 	}
+	r := p.treeRows[row-1]
+	if !r.Branch {
+		return
+	}
+	r.Node.Toggle()
+	a.renderValue()
+	if row > len(p.treeRows) { // branch folded away: keep cursor in range
+		row = len(p.treeRows)
+	}
+	a.value.Select(row, 0)
 }
 
 // prefetchAround bulk-loads type+ttl for rows near idx (visible window).
@@ -456,6 +514,9 @@ func (a *App) prefetchAround(idx int) {
 	}
 	var want []string
 	for i := lo; i <= hi; i++ {
+		if i == idx { // the caller fetches the selected key itself (incl. size)
+			continue
+		}
 		if _, ok := s.meta[s.keys[i]]; !ok {
 			want = append(want, s.keys[i])
 		}
@@ -492,7 +553,7 @@ func (a *App) nextValuePage() {
 		return
 	}
 	switch p.kind {
-	case "list":
+	case kindList:
 		if p.start+keyview.PageLen < p.total {
 			p.start += keyview.PageLen
 			a.fetchValuePage()
@@ -510,7 +571,7 @@ func (a *App) prevValuePage() {
 	if p == nil {
 		return
 	}
-	if p.kind == "list" && p.start > 0 {
+	if p.kind == kindList && p.start > 0 {
 		p.start -= keyview.PageLen
 		if p.start < 0 {
 			p.start = 0

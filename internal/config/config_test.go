@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -77,16 +78,7 @@ func TestPasswordNotInFileWhenEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
-	if want := "password"; len(string(data)) > 0 && stringContains(string(data), want) {
+	if strings.Contains(string(data), "password") {
 		t.Fatalf("empty password should be omitted:\n%s", data)
 	}
-}
-
-func stringContains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

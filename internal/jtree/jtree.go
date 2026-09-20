@@ -4,9 +4,9 @@
 package jtree
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -32,6 +32,7 @@ type Node struct {
 	Kind     Kind
 	Children []*Node
 	Expanded bool
+	Inline   bool // flat container rendered as a one-line JSON preview
 	ItemIdx  int
 }
 
@@ -42,15 +43,6 @@ func Leaf(label, value string, k Kind) *Node {
 
 // IsBranch reports whether the node is a container (object or array).
 func (n *Node) IsBranch() bool { return n.Kind == KindObject || n.Kind == KindArray }
-
-// Branch builds an object or array node.
-func Branch(label string, array bool, expanded bool, children ...*Node) *Node {
-	k := KindObject
-	if array {
-		k = KindArray
-	}
-	return &Node{Label: label, Kind: k, Expanded: expanded, Children: children, ItemIdx: -1}
-}
 
 // FromJSON parses text into a tree, preserving object key order. Returns
 // nil when the text is not a single valid JSON value.
@@ -64,7 +56,74 @@ func FromJSON(text string) *Node {
 	if dec.More() { // trailing garbage
 		return nil
 	}
+	markInline(n)
 	return n
+}
+
+// markInline flags every flat container (all children scalar, preview fits
+// the width cap) so Rows renders it on a single line by default.
+func markInline(n *Node) {
+	if _, ok := inlinePreview(n); ok {
+		n.Inline = true
+	}
+	for _, c := range n.Children {
+		markInline(c)
+	}
+}
+
+// maxInline caps the one-line preview of a flat container.
+const maxInline = 120
+
+// inlinePreview renders a flat container as ["a", "b"] / {"k": 1}.
+func inlinePreview(n *Node) (string, bool) {
+	if !n.IsBranch() || len(n.Children) == 0 {
+		return "", false
+	}
+	open, shut := "{", "}"
+	if n.Kind == KindArray {
+		open, shut = "[", "]"
+	}
+	var b strings.Builder
+	b.WriteString(open)
+	for i, c := range n.Children {
+		if c.IsBranch() {
+			return "", false
+		}
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if n.Kind == KindObject {
+			b.WriteString(`"` + c.Label + `": `)
+		}
+		b.WriteString(ScalarText(c))
+		if b.Len() > maxInline {
+			return "", false
+		}
+	}
+	b.WriteString(shut)
+	return b.String(), true
+}
+
+// Toggle cycles a branch's display. Flat containers go
+// inline → expanded tree → collapsed → inline; others flip expanded/collapsed.
+func (n *Node) Toggle() bool {
+	if !n.IsBranch() {
+		return false
+	}
+	if _, ok := inlinePreview(n); ok {
+		switch {
+		case n.Inline:
+			n.Inline = false
+			n.Expanded = true
+		case n.Expanded:
+			n.Expanded = false
+		default:
+			n.Inline = true
+		}
+		return true
+	}
+	n.Expanded = !n.Expanded
+	return true
 }
 
 func parseValue(dec *json.Decoder) (*Node, error) {
@@ -160,6 +219,20 @@ func stamp(n *Node, idx int) {
 	}
 }
 
+// ScalarText renders one leaf's display text: strings quoted, numbers/bools
+// bare, null and newlines in plain text escaped.
+func ScalarText(n *Node) string {
+	switch n.Kind {
+	case KindString:
+		return `"` + n.Value + `"`
+	case KindNull:
+		return "null"
+	case KindText:
+		return strings.ReplaceAll(n.Value, "\n", "\\n")
+	}
+	return n.Value
+}
+
 // Row is one visible line of the rendered tree.
 type Row struct {
 	Node    *Node
@@ -167,7 +240,7 @@ type Row struct {
 	Branch  bool
 	Marker  string // ▸ / ▾ / " "
 	Rails   string // indent guides ("│ " per ancestor with later siblings)
-	Summary string // "{3}" / "[2]" for collapsed branches
+	Summary string // "{3}" / "[2]" for collapsed branches; JSON preview for inline ones
 	Open    string // "{" / "[" shown on expanded branches
 }
 
@@ -185,12 +258,17 @@ func walk(n *Node, depth int, rails string, out *[]Row) {
 		depth := depth + 1
 		isLast := i == len(n.Children)-1
 		if c.IsBranch() {
+			if prev, ok := inlinePreview(c); ok && c.Inline {
+				*out = append(*out, Row{Node: c, Depth: depth, Branch: true,
+					Marker: "▸", Rails: rails, Summary: prev})
+				continue
+			}
 			marker, summary := "▸", ""
 			open := openBrace(c)
 			if len(c.Children) == 0 || c.Expanded {
 				marker = "▾"
 			} else {
-				summary = summaryFor(c)
+				summary = Summary(c)
 				open = ""
 			}
 			*out = append(*out, Row{Node: c, Depth: depth, Branch: true, Marker: marker,
@@ -219,29 +297,106 @@ func openBrace(n *Node) string {
 	return "["
 }
 
-func summaryFor(n *Node) string {
-	var b bytes.Buffer
+// Summary renders the collapsed-branch hint, e.g. "{3}" or "[2]".
+func Summary(n *Node) string {
 	if n.Kind == KindObject {
-		b.WriteByte('{')
-	} else {
-		b.WriteByte('[')
+		return fmt.Sprintf("{%d}", len(n.Children))
 	}
-	b.WriteString(strconv.Itoa(len(n.Children)))
-	if n.Kind == KindObject {
-		b.WriteByte('}')
-	} else {
-		b.WriteByte(']')
-	}
-	return b.String()
+	return fmt.Sprintf("[%d]", len(n.Children))
 }
 
-// ToggleVisible flips the branch at visible row index i. Returns true if a
-// branch was toggled.
-func ToggleVisible(root *Node, i int) bool {
-	rows := Rows(root)
-	if i < 0 || i >= len(rows) || !rows[i].Branch {
+// Marshal renders the subtree as compact JSON. Object key order and raw
+// number text are preserved; strings are re-escaped.
+func Marshal(n *Node) string {
+	switch n.Kind {
+	case KindObject:
+		var b strings.Builder
+		b.WriteByte('{')
+		for i, c := range n.Children {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			k, _ := json.Marshal(c.Label)
+			b.Write(k)
+			b.WriteByte(':')
+			b.WriteString(Marshal(c))
+		}
+		b.WriteByte('}')
+		return b.String()
+	case KindArray:
+		var b strings.Builder
+		b.WriteByte('[')
+		for i, c := range n.Children {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(Marshal(c))
+		}
+		b.WriteByte(']')
+		return b.String()
+	case KindString, KindText:
+		k, _ := json.Marshal(n.Value)
+		return string(k)
+	case KindNull:
+		return "null"
+	}
+	if n.Value == "" {
+		return "null"
+	}
+	return n.Value
+}
+
+// Replace swaps the descendant pointer old with repl, keeping the slot's
+// label. Reports whether old was found.
+func (n *Node) Replace(old, repl *Node) bool {
+	for i, c := range n.Children {
+		if c == old {
+			repl.Label = c.Label
+			n.Children[i] = repl
+			return true
+		}
+		if c.IsBranch() && c.Replace(old, repl) {
+			return true
+		}
+	}
+	return false
+}
+
+// FindParent returns the branch that holds target as a child (nil for root
+// or when target is not in the tree).
+func FindParent(root, target *Node) *Node {
+	for _, c := range root.Children {
+		if c == target {
+			return root
+		}
+		if c.IsBranch() {
+			if p := FindParent(c, target); p != nil {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+// Path returns the labels from root down to target (nil when not found).
+// Array elements carry their index string.
+func Path(root, target *Node) []string {
+	var cur, found []string
+	var walk func(n *Node) bool
+	walk = func(n *Node) bool {
+		for _, c := range n.Children {
+			cur = append(cur, c.Label)
+			if c == target {
+				found = slices.Clone(cur)
+				return true
+			}
+			if c.IsBranch() && walk(c) {
+				return true
+			}
+			cur = cur[:len(cur)-1]
+		}
 		return false
 	}
-	rows[i].Node.Expanded = !rows[i].Node.Expanded
-	return true
+	walk(root)
+	return found
 }

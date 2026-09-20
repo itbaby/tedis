@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // ExternalDir returns the custom encoder directory (Medis-compatible).
@@ -62,27 +63,46 @@ func (e *External) Encode(text string) ([]byte, error) {
 	return e.run("encode", []byte(text))
 }
 
+// externalCache memoizes ScanExternal: ByName/CycleNames run while rendering
+// values, and the encoders directory rarely changes while the app runs.
+var (
+	externalMu    sync.Mutex
+	externalCache []*External
+	externalValid bool
+)
+
 // ScanExternal lists available encoder_* executables, sorted by name.
 func ScanExternal() []*External {
-	dir, err := ExternalDir()
-	if err != nil {
-		return nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
+	externalMu.Lock()
+	defer externalMu.Unlock()
+	if externalValid {
+		return externalCache
 	}
 	var out []*External
-	for _, en := range entries {
-		name := en.Name()
-		if !strings.HasPrefix(name, "encoder_") || en.IsDir() {
-			continue
-		}
-		p := filepath.Join(dir, name)
-		if info, err := os.Stat(p); err == nil && info.Mode()&0o111 != 0 {
-			out = append(out, &External{Path: p})
+	dir, err := ExternalDir()
+	if err == nil {
+		entries, err := os.ReadDir(dir)
+		if err == nil {
+			for _, en := range entries {
+				name := en.Name()
+				if !strings.HasPrefix(name, "encoder_") || en.IsDir() {
+					continue
+				}
+				p := filepath.Join(dir, name)
+				if info, err := os.Stat(p); err == nil && info.Mode()&0o111 != 0 {
+					out = append(out, &External{Path: p})
+				}
+			}
+			sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	externalCache, externalValid = out, true
 	return out
+}
+
+// ClearExternalCache forces the next ScanExternal to re-read the directory.
+func ClearExternalCache() {
+	externalMu.Lock()
+	externalValid = false
+	externalMu.Unlock()
 }

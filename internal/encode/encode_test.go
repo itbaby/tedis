@@ -102,6 +102,7 @@ fi
 	os.Rename(script, filepath.Join(xdir, "encoder_Reverse.sh"))
 	defer os.Setenv("HOME", oldHome)
 	os.Setenv("HOME", home)
+	ClearExternalCache() // scan against the temp HOME, not the cached listing
 
 	list := ScanExternal()
 	if len(list) != 1 || list[0].Name() != "Reverse" {

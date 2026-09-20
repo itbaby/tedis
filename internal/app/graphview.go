@@ -1,9 +1,6 @@
 package app
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
@@ -297,8 +294,8 @@ func (g *graphView) drawCard(screen tcell.Screen, n *jtree.Node, x0, y0, w, h in
 	p := g.pos[n]
 	inner := cardW - 2
 	label := fit(n.Label, inner)
-	val := fit(g.scalarText(n), inner)
-	border := g.cardColor(n)
+	val := fit(g.cardValueText(n), inner)
+	border := nodeColor(g.app.th, n)
 	if n == g.cursor {
 		border = g.app.th.BorderFocus
 	}
@@ -344,54 +341,18 @@ func (g *graphView) drawCard(screen tcell.Screen, n *jtree.Node, x0, y0, w, h in
 	}
 }
 
-func (g *graphView) cardColor(n *jtree.Node) tcell.Color {
-	a := g.app
-	switch n.Kind {
-	case jtree.KindObject:
-		return a.th.Title
-	case jtree.KindArray:
-		return a.th.TypeZSet
-	case jtree.KindString:
-		return a.th.JSONString
-	case jtree.KindNumber:
-		return a.th.JSONNumber
-	case jtree.KindBool:
-		return a.th.JSONBool
-	case jtree.KindNull:
-		return a.th.JSONNull
+func (g *graphView) cardValueText(n *jtree.Node) string {
+	if n.IsBranch() {
+		return jtree.Summary(n)
 	}
-	return a.th.Text
+	return nodeText(n)
 }
 
 func (g *graphView) valueColor(n *jtree.Node) tcell.Color {
 	if n.IsBranch() {
 		return g.app.th.Dim
 	}
-	return g.cardColor(n)
-}
-
-// scalarText gives the card's value line: branches show their summary.
-func (g *graphView) scalarText(n *jtree.Node) string {
-	if n.IsBranch() {
-		return summaryCard(n)
-	}
-	switch n.Kind {
-	case jtree.KindString:
-		return `"` + n.Value + `"`
-	case jtree.KindNull:
-		return "null"
-	case jtree.KindText:
-		v := strings.ReplaceAll(n.Value, "\n", "\\n")
-		return v
-	}
-	return n.Value
-}
-
-func summaryCard(n *jtree.Node) string {
-	if n.Kind == jtree.KindObject {
-		return fmt.Sprintf("{%d}", len(n.Children))
-	}
-	return fmt.Sprintf("[%d]", len(n.Children))
+	return nodeColor(g.app.th, n)
 }
 
 func fit(s string, w int) string {
@@ -411,12 +372,14 @@ func (a *App) openGraph() {
 	}
 	a.graph = newGraphView(a, p.tree, p.key)
 	a.pages.RemovePage("graph")
+	a.openModals["graph"] = true
 	a.pages.AddPage("graph", a.graph, true, true)
 	a.tapp.SetFocus(a.graph)
 }
 
 // closeGraph dismisses the diagram.
 func (a *App) closeGraph() {
+	delete(a.openModals, "graph")
 	a.pages.RemovePage("graph")
 	a.tapp.SetFocus(a.value)
 	a.applyFocusStyles()
