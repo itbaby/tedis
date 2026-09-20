@@ -64,7 +64,6 @@ type Profile struct {
 type Settings struct {
 	Theme        string `toml:"theme,omitempty"`          // dark | light
 	Language     string `toml:"language,omitempty"`       // en | zh-CN
-	AlertDefault bool   `toml:"alert_default,omitempty"`  // Medis "Alert mode"
 	ScanCount    int    `toml:"scan_count,omitempty"`     // default for profiles
 	Separator    string `toml:"separator,omitempty"`      // default ":"
 	MaxFoldLevel int    `toml:"max_fold_level,omitempty"` // default 1

@@ -25,11 +25,10 @@ func (a *App) confirmModal(title string, body []string, confirmLabel string, fn 
 	}
 	tv := tview.NewTextView().SetDynamicColors(true).SetText(b.String())
 
-	cancel := tview.NewButton(" cancel ").SetSelectedFunc(func() { a.closeModal("confirm") })
-	ok := tview.NewButton(" " + confirmLabel + " ").SetSelectedFunc(func() {
-		a.closeModal("confirm")
-		fn()
-	})
+	onOK := func() { a.closeModal("confirm"); fn() }
+	onCancel := func() { a.closeModal("confirm") }
+	cancel := tview.NewButton(" cancel ").SetSelectedFunc(onCancel)
+	ok := tview.NewButton(" " + confirmLabel + " ").SetSelectedFunc(onOK)
 	cancel.SetBackgroundColorActivated(a.th.SelBg)
 	ok.SetBackgroundColorActivated(a.th.Error)
 	buttons := tview.NewFlex().
@@ -42,8 +41,6 @@ func (a *App) confirmModal(title string, body []string, confirmLabel string, fn 
 		AddItem(nil, 1, 0, false).
 		AddItem(buttons, 1, 0, true)
 	f.SetBorder(true).SetTitle(" " + title + " ").SetTitleColor(a.th.Warn)
-	onOK := func() { a.closeModal("confirm"); fn() }
-	onCancel := func() { a.closeModal("confirm") }
 	f.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		switch ev.Key() {
 		case tcell.KeyEsc:
@@ -115,7 +112,6 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 	form.SetLabelColor(a.th.Dim)
 	vals := make([]string, len(fields))
 	for i, f := range fields {
-		i, f := i, f
 		vals[i] = f.initial // changed callbacks fire on edits, not on init
 		if f.multiline {
 			form.AddTextArea(f.label, f.initial, 48, 6, 0, func(s string) { vals[i] = s })
@@ -265,10 +261,6 @@ func (a *App) editKeyTTL(key string) {
 					return
 				}
 				a.flash(msg, a.th.OK)
-				if m, ok := a.scan.meta[key]; ok {
-					m.TTL = -1
-					a.scan.meta[key] = m
-				}
 				a.loadMeta(key, -1)
 			})
 		}()

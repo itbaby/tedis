@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -32,13 +33,15 @@ type Node struct {
 	Children []*Node
 	Expanded bool
 	ItemIdx  int
-	Depth    int
 }
 
 // Leaf builds a scalar node.
 func Leaf(label, value string, k Kind) *Node {
 	return &Node{Label: label, Value: value, Kind: k, ItemIdx: -1}
 }
+
+// IsBranch reports whether the node is a container (object or array).
+func (n *Node) IsBranch() bool { return n.Kind == KindObject || n.Kind == KindArray }
 
 // Branch builds an object or array node.
 func Branch(label string, array bool, expanded bool, children ...*Node) *Node {
@@ -103,7 +106,7 @@ func tokenNode(dec *json.Decoder, tok json.Token) (*Node, error) {
 				if err != nil {
 					return nil, err
 				}
-				child.Label = itoa(i)
+				child.Label = strconv.Itoa(i)
 				i++
 				n.Children = append(n.Children, child)
 			}
@@ -117,7 +120,7 @@ func tokenNode(dec *json.Decoder, tok json.Token) (*Node, error) {
 	case json.Number:
 		return &Node{Value: t.String(), Kind: KindNumber}, nil
 	case bool:
-		return &Node{Value: btoa(t), Kind: KindBool}, nil
+		return &Node{Value: strconv.FormatBool(t), Kind: KindBool}, nil
 	case nil:
 		return &Node{Kind: KindNull}, nil
 	}
@@ -181,7 +184,7 @@ func walk(n *Node, depth int, rails string, out *[]Row) {
 	for i, c := range n.Children {
 		depth := depth + 1
 		isLast := i == len(n.Children)-1
-		if c.Kind == KindObject || c.Kind == KindArray {
+		if c.IsBranch() {
 			marker, summary := "▸", ""
 			open := openBrace(c)
 			if len(c.Children) == 0 || c.Expanded {
@@ -223,7 +226,7 @@ func summaryFor(n *Node) string {
 	} else {
 		b.WriteByte('[')
 	}
-	b.WriteString(itoa(len(n.Children)))
+	b.WriteString(strconv.Itoa(len(n.Children)))
 	if n.Kind == KindObject {
 		b.WriteByte('}')
 	} else {
@@ -241,25 +244,4 @@ func ToggleVisible(root *Node, i int) bool {
 	}
 	rows[i].Node.Expanded = !rows[i].Node.Expanded
 	return true
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
-}
-
-func btoa(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
 }

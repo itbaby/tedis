@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"time"
 
@@ -44,7 +45,6 @@ func (a *App) onConnected(c *conn.Conn) {
 	lat, _ := c.Ping(context.Background())
 	a.setStatusConnected(p, c, n, lat)
 	a.startScan("*")
-	a.ns.SetTitle(" " + p.Name + " ")
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()
 }
@@ -183,7 +183,6 @@ func (a *App) openConnect() {
 		return p, nil
 	}
 
-	buildForm()
 	// actions live in a fixed button row below the form so they stay
 	// visible no matter how tall the field list gets
 	doConnect := func() {
@@ -288,12 +287,7 @@ func sortedProfileNames(c *config.Config) []string {
 	for n := range c.Profiles {
 		names = append(names, n)
 	}
-	// small n: insertion sort is fine and dependency-free
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j] < names[j-1]; j-- {
-			names[j], names[j-1] = names[j-1], names[j]
-		}
-	}
+	sort.Strings(names)
 	return names
 }
 

@@ -32,12 +32,10 @@ type App struct {
 	pages *tview.Pages
 	panes *tview.Flex
 
-	ns         *tview.Table    // namespace tree
-	keys       *tview.Table    // key list
-	value      *tview.Table    // value view: table mode
-	valueText  *tview.TextView // value view: syntax-highlighted JSON mode
-	valuePages *tview.Pages    // switches table ↔ json
-	cmd        *tview.InputField
+	ns    *tview.Table // namespace tree
+	keys  *tview.Table // key list
+	value *tview.Table // value view: table mode
+	cmd   *tview.InputField
 
 	statusL *tview.TextView
 	statusR *tview.TextView
@@ -88,7 +86,7 @@ func (a *App) build() {
 		SetLabel(" ❯ ").
 		SetLabelColor(a.th.Read).
 		SetFieldBackgroundColor(tcell.ColorDefault).
-		SetPlaceholder("query (phase 3)").
+		SetPlaceholder(cmdPlaceholder).
 		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
 
 	a.keys.SetSelectionChangedFunc(a.keysSelectionChanged)
@@ -240,6 +238,9 @@ func (a *App) focusInPanes() bool {
 	}
 	return false
 }
+
+// cmdPlaceholder is the command bar's idle hint.
+const cmdPlaceholder = "query  ·  : opens the query view"
 
 func onOff(b bool) string {
 	if b {

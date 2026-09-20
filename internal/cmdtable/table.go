@@ -7,6 +7,7 @@ package cmdtable
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -41,7 +42,7 @@ func (t *Table) ClassOf(name string) Class {
 	if t == nil {
 		return Unknown
 	}
-	return t.classes[lower(name)]
+	return t.classes[strings.ToLower(name)]
 }
 
 // Names returns the sorted command names (for completion).
@@ -103,7 +104,7 @@ func ParseReply(v interface{}, t *Table) {
 				}
 			}
 		}
-		key := lower(name)
+		key := strings.ToLower(name)
 		t.classes[key] = cls
 		t.names = append(t.names, name)
 	}
@@ -118,14 +119,4 @@ func flagToString(f interface{}) string {
 		return string(x)
 	}
 	return ""
-}
-
-func lower(s string) string {
-	b := []byte(s)
-	for i := range b {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 'a' - 'A'
-		}
-	}
-	return string(b)
 }

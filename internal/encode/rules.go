@@ -1,7 +1,6 @@
 package encode
 
 import (
-	"sort"
 	"strings"
 )
 
@@ -95,16 +94,4 @@ func CycleNames() []string {
 		out = append(out, e.Name())
 	}
 	return out
-}
-
-// SortedRulesMatched is a helper for tests: which rules match, in order.
-func SortedRulesMatched(rules []Rule, key, typ string) []int {
-	var idx []int
-	for i, r := range rules {
-		if r.Match(key, typ) {
-			idx = append(idx, i)
-		}
-	}
-	sort.Ints(idx)
-	return idx
 }

@@ -36,7 +36,7 @@ func (a *App) copySelected() {
 			row, _ := a.value.GetSelection()
 			if row > 0 && row <= len(p.treeRows) {
 				n := p.treeRows[row-1].Node
-				if n.Kind == 0 || n.Kind == 1 { // branch: copy label
+				if n.IsBranch() { // branch: copy label
 					a.copyOSC52(n.Label)
 					return
 				}

@@ -45,7 +45,7 @@ func newGraphView(a *App, root *jtree.Node, key string) *graphView {
 		folded:     map[*jtree.Node]bool{},
 	}
 	g.layout()
-	g.cursor = firstCard(g.root, g.folded)
+	g.cursor = g.root
 	g.SetInputCapture(g.keys)
 	return g
 }
@@ -174,10 +174,6 @@ func visibleKids(n *jtree.Node, folded map[*jtree.Node]bool) []*jtree.Node {
 		return nil
 	}
 	return n.Children
-}
-
-func firstCard(root *jtree.Node, folded map[*jtree.Node]bool) *jtree.Node {
-	return root
 }
 
 // ---- node navigation -----------------------------------------------------
@@ -368,7 +364,7 @@ func (g *graphView) cardColor(n *jtree.Node) tcell.Color {
 }
 
 func (g *graphView) valueColor(n *jtree.Node) tcell.Color {
-	if n.Kind == jtree.KindObject || n.Kind == jtree.KindArray {
+	if n.IsBranch() {
 		return g.app.th.Dim
 	}
 	return g.cardColor(n)
@@ -376,10 +372,7 @@ func (g *graphView) valueColor(n *jtree.Node) tcell.Color {
 
 // scalarText gives the card's value line: branches show their summary.
 func (g *graphView) scalarText(n *jtree.Node) string {
-	if n.Kind == jtree.KindObject || n.Kind == jtree.KindArray {
-		if g.folded[n] || len(n.Children) == 0 {
-			return summaryCard(n)
-		}
+	if n.IsBranch() {
 		return summaryCard(n)
 	}
 	switch n.Kind {

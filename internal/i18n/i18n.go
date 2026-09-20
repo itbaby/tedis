@@ -11,19 +11,15 @@ import (
 var lang = "en"
 
 // Init picks the default language from the environment.
-func Init() string {
+func Init() {
 	l := os.Getenv("LANG") + "," + os.Getenv("LC_ALL")
 	if strings.Contains(l, "zh") {
 		lang = "zh-CN"
 	}
-	return lang
 }
 
 // Set switches the language.
 func Set(l string) { lang = l }
-
-// Lang returns the active language.
-func Lang() string { return lang }
 
 var zh = map[string]string{
 	"not connected": "未连接 — 按 c 打开连接",
@@ -39,8 +35,6 @@ var zh = map[string]string{
 	"delete key":    "删除键",
 	"delete item":   "删除条目",
 	"alert·write":   "警报 · 写命令",
-	"deleted":       "已删除",
-	"saved":         "已保存",
 }
 
 // T translates a UI string.

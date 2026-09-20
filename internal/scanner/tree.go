@@ -142,26 +142,6 @@ func (t *Tree) Remove(key string) bool {
 	return true
 }
 
-// RememberExpanded returns the prefixes of all expanded folders.
-func (t *Tree) RememberExpanded() []string {
-	var out []string
-	for prefix, n := range t.index {
-		if n.expanded && len(n.children) > 0 {
-			out = append(out, prefix)
-		}
-	}
-	return out
-}
-
-// RestoreExpanded re-applies expansion state recorded by RememberExpanded.
-func (t *Tree) RestoreExpanded(prefixes []string) {
-	for _, p := range prefixes {
-		if n, ok := t.index[p]; ok {
-			n.expanded = true
-		}
-	}
-}
-
 // Toggle expands/collapses the folder at prefix. Returns whether it changed.
 func (t *Tree) Toggle(prefix string) bool {
 	n, ok := t.index[prefix]

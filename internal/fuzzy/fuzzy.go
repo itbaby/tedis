@@ -55,38 +55,9 @@ func isBoundary(r rune) bool {
 	return false
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 type hit struct {
 	s     string
 	score int
-}
-
-// Filter returns entries matching pattern sorted by score (desc), then
-// alphabetically for ties.
-func Filter(pattern string, items []string) []string {
-	var hits []hit
-	for _, it := range items {
-		if sc, ok := Match(pattern, it); ok {
-			hits = append(hits, hit{it, sc})
-		}
-	}
-	// insertion sort: hits sets are small and mostly sorted
-	for i := 1; i < len(hits); i++ {
-		for j := i; j > 0 && better(hits[j], hits[j-1]); j-- {
-			hits[j], hits[j-1] = hits[j-1], hits[j]
-		}
-	}
-	out := make([]string, len(hits))
-	for i, h := range hits {
-		out[i] = h.s
-	}
-	return out
 }
 
 func better(a, b hit) bool {
@@ -96,9 +67,8 @@ func better(a, b hit) bool {
 	return a.s < b.s
 }
 
-// RankTop sorts all matching items by score and keeps at most limit.
-// Used by incremental scans: cheap cap that keeps the list bounded.
-func RankTop(pattern string, items []string, limit int) []string {
+// rank collects the matching entries, best first (ties alphabetically).
+func rank(pattern string, items []string) []hit {
 	hits := make([]hit, 0, len(items))
 	for _, it := range items {
 		if sc, ok := Match(pattern, it); ok {
@@ -106,12 +76,29 @@ func RankTop(pattern string, items []string, limit int) []string {
 		}
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return better(hits[i], hits[j]) })
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
+	return hits
+}
+
+func keys(hits []hit) []string {
 	out := make([]string, len(hits))
 	for i, h := range hits {
 		out[i] = h.s
 	}
 	return out
+}
+
+// Filter returns entries matching pattern sorted by score (desc), then
+// alphabetically for ties.
+func Filter(pattern string, items []string) []string {
+	return keys(rank(pattern, items))
+}
+
+// RankTop sorts all matching items by score and keeps at most limit.
+// Used by incremental scans: cheap cap that keeps the list bounded.
+func RankTop(pattern string, items []string, limit int) []string {
+	hits := rank(pattern, items)
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return keys(hits)
 }

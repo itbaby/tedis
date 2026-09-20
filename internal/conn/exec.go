@@ -2,8 +2,11 @@ package conn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/redis/go-redis/v9"
 
 	"tedis/internal/cmdquery"
 	"tedis/internal/cmdtable"
@@ -12,7 +15,6 @@ import (
 // ExecResult is one rendered command reply.
 type ExecResult struct {
 	Cmd  cmdquery.Command
-	Kind string // status | int | bulk | array | nil | error
 	Text string
 	Err  error
 }
@@ -25,11 +27,11 @@ func (c *Conn) Exec(ctx context.Context, cmd cmdquery.Command) ExecResult {
 		full = append(full, a.Text)
 	}
 	v, err := c.Client.Do(ctx, full...).Result()
-	if err != nil && err.Error() != "redis: nil" {
-		return ExecResult{Cmd: cmd, Kind: "error", Text: err.Error(), Err: err}
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return ExecResult{Cmd: cmd, Text: err.Error(), Err: err}
 	}
-	kind, text := renderReply(v)
-	return ExecResult{Cmd: cmd, Kind: kind, Text: text}
+	_, text := renderReply(v)
+	return ExecResult{Cmd: cmd, Text: text}
 }
 
 // renderReply converts a RESP reply to display text.
@@ -56,8 +58,6 @@ func renderReply(v interface{}) (kind, text string) {
 			}
 		}
 		return "array", b.String()
-	case fmt.Stringer:
-		return "status", x.String()
 	}
 	return "status", fmt.Sprintf("%v", v)
 }

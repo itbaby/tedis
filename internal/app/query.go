@@ -104,11 +104,7 @@ func (a *App) closeQuery() {
 }
 
 func (q *queryPage) setTitle() {
-	status := "off"
-	if q.app.alert {
-		status = "on"
-	}
-	q.editor.SetTitle(fmt.Sprintf(" query · alert:%s ", status))
+	q.editor.SetTitle(" query · alert:" + onOff(q.app.alert) + " ")
 }
 
 func (q *queryPage) keys(ev *tcell.EventKey) *tcell.EventKey {

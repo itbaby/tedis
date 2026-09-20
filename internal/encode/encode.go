@@ -50,7 +50,7 @@ func Detect(raw []byte) Codec {
 }
 
 func isJSON(raw []byte) bool {
-	t := trimSpace(raw)
+	t := bytes.TrimSpace(raw)
 	if len(t) == 0 {
 		return false
 	}
@@ -88,7 +88,7 @@ func isMsgpack(raw []byte) bool {
 }
 
 func isPHP(raw []byte) bool {
-	t := trimSpace(raw)
+	t := bytes.TrimSpace(raw)
 	if len(t) < 3 {
 		return false
 	}
@@ -97,16 +97,6 @@ func isPHP(raw []byte) bool {
 		return t[1] == ':'
 	}
 	return false
-}
-
-func trimSpace(b []byte) []byte {
-	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t' || b[0] == '\n' || b[0] == '\r') {
-		b = b[1:]
-	}
-	for len(b) > 0 && (b[len(b)-1] == ' ' || b[len(b)-1] == '\t' || b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
-		b = b[:len(b)-1]
-	}
-	return b
 }
 
 // ---- JSON -----------------------------------------------------------------
@@ -120,7 +110,7 @@ func (jsonCodec) Name() string { return "json" }
 
 func (jsonCodec) Decode(raw []byte) (string, error) {
 	var buf bytes.Buffer
-	if err := json.Indent(&buf, trimSpace(raw), "", "  "); err != nil {
+	if err := json.Indent(&buf, bytes.TrimSpace(raw), "", "  "); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

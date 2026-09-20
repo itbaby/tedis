@@ -21,7 +21,6 @@ import (
 // ServerInfo carries what the status bar shows about the server.
 type ServerInfo struct {
 	Version string // e.g. 7.2.4
-	Mode    string // standalone | cluster
 }
 
 // Conn wraps a go-redis client plus connection-scoped state.
@@ -117,8 +116,6 @@ func (c *Conn) loadInfo(ctx context.Context) error {
 		switch {
 		case strings.HasPrefix(line, "redis_version:"):
 			c.Info.Version = strings.TrimPrefix(line, "redis_version:")
-		case strings.HasPrefix(line, "redis_mode:"):
-			c.Info.Mode = strings.TrimPrefix(line, "redis_mode:")
 		}
 	}
 	return nil
@@ -133,19 +130,17 @@ func (c *Conn) Ping(ctx context.Context) (time.Duration, error) {
 
 // KeyMeta describes one key, fetched in a single pipeline round trip.
 type KeyMeta struct {
-	Type     string
-	TTL      time.Duration // -1 = persistent
-	Size     int64         // bytes (MEMORY USAGE)
-	Encoding string        // OBJECT ENCODING (embstr, listpack, …)
+	Type string
+	TTL  time.Duration // -1 = persistent
+	Size int64         // bytes (MEMORY USAGE)
 }
 
-// KeyMeta fetches type/TTL/size/encoding for one key.
+// KeyMeta fetches type/TTL/size for one key.
 func (c *Conn) KeyMeta(ctx context.Context, key string) (KeyMeta, error) {
 	pipe := c.Client.Pipeline()
 	typeCmd := pipe.Type(ctx, key)
 	ttlCmd := pipe.TTL(ctx, key)
 	sizeCmd := pipe.MemoryUsage(ctx, key)
-	encCmd := pipe.ObjectEncoding(ctx, key)
 	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
 		return KeyMeta{}, err
 	}
@@ -153,7 +148,6 @@ func (c *Conn) KeyMeta(ctx context.Context, key string) (KeyMeta, error) {
 	if v := sizeCmd.Val(); v > 0 {
 		m.Size = v
 	}
-	m.Encoding = encCmd.Val()
 	return m, nil
 }
 
@@ -162,8 +156,8 @@ func (c *Conn) DBSize(ctx context.Context) (int64, error) {
 	return c.Client.DBSize(ctx).Result()
 }
 
-// KeyMetaBatch fetches type+TTL for many keys in one pipeline (size/encoding
-// are skipped: too costly for bulk prefetch).
+// KeyMetaBatch fetches type+TTL for many keys in one pipeline (memory usage
+// is skipped: too costly for bulk prefetch).
 func (c *Conn) KeyMetaBatch(ctx context.Context, keys []string) ([]KeyMeta, error) {
 	if len(keys) == 0 {
 		return nil, nil

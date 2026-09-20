@@ -22,24 +22,47 @@ func TestExecDirect(t *testing.T) {
 	c.Client.RPush(ctx, "tedis:exec:list", "a", "b")
 
 	r := c.Exec(ctx, mustCmd(t, `get tedis:exec:str`))
-	if r.Kind != "bulk" || r.Text != "hello" || r.Err != nil {
+	if r.Text != "hello" || r.Err != nil {
 		t.Fatalf("get: %+v", r)
 	}
 	r = c.Exec(ctx, mustCmd(t, `incr tedis:exec:n`))
-	if r.Kind != "int" || r.Text != "1" {
+	if r.Text != "1" {
 		t.Fatalf("incr: %+v", r)
 	}
 	r = c.Exec(ctx, mustCmd(t, `lrange tedis:exec:list 0 -1`))
-	if r.Kind != "array" || r.Text != "(2 items)\n1) a\n2) b" {
+	if r.Text != "(2 items)\n1) a\n2) b" {
 		t.Fatalf("lrange: %q", r.Text)
 	}
 	r = c.Exec(ctx, mustCmd(t, `get tedis:missing:key`))
-	if r.Kind != "nil" {
-		t.Fatalf("nil: %+v", r)
+	if r.Text != "(nil)" {
+		t.Fatalf("nil: %q", r.Text)
 	}
 	r = c.Exec(ctx, mustCmd(t, `get`)) // wrong arity
-	if r.Kind != "error" {
-		t.Fatalf("error: %+v", r)
+	if r.Err == nil {
+		t.Fatalf("error: want err, got %+v", r)
+	}
+}
+
+// TestRenderReplyKinds covers the RESP reply classification without a server.
+func TestRenderReplyKinds(t *testing.T) {
+	cases := []struct {
+		name string
+		in   interface{}
+		kind string
+		text string
+	}{
+		{"nil", nil, "nil", "(nil)"},
+		{"bulk", "hello", "bulk", "hello"},
+		{"bytes", []byte("hi"), "bulk", "hi"},
+		{"int", int64(7), "int", "7"},
+		{"array", []interface{}{"a", int64(2)}, "array", "(2 items)\n1) a\n2) 2"},
+		{"status", "OK", "bulk", "OK"},
+	}
+	for _, tc := range cases {
+		k, tx := renderReply(tc.in)
+		if k != tc.kind || tx != tc.text {
+			t.Errorf("%s: got (%q,%q), want (%q,%q)", tc.name, k, tx, tc.kind, tc.text)
+		}
 	}
 }
 

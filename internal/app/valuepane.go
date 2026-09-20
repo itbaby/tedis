@@ -213,13 +213,6 @@ func (a *App) cycleValueCodec() {
 	a.renderValue()
 }
 
-func (a *App) stringRows(v string) [][2]string {
-	if !strings.Contains(v, "\n") {
-		return [][2]string{{"value", v}}
-	}
-	return [][2]string{{"value", v}}
-}
-
 func formatScore(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
@@ -377,13 +370,6 @@ func (a *App) renderValue() {
 	a.value.Select(1, 0)
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // scalarText renders a leaf value: strings quoted, numbers/bools bare.
 func (a *App) scalarText(n *jtree.Node) string {
 	switch n.Kind {
@@ -418,13 +404,10 @@ func (a *App) scalarColor(n *jtree.Node) tcell.Color {
 }
 
 func (a *App) labelColor(r jtree.Row) tcell.Color {
-	if r.Branch && r.Depth == 1 {
-		return (a.th.Title)
-	}
 	if r.Depth == 1 {
-		return (a.th.Title)
+		return a.th.Title
 	}
-	return (a.th.Text)
+	return a.th.Text
 }
 
 // valueToggle flips the branch under the cursor (Enter/l on the value pane).
@@ -512,10 +495,6 @@ func (a *App) nextValuePage() {
 	case "list":
 		if p.start+keyview.PageLen < p.total {
 			p.start += keyview.PageLen
-			a.fetchValuePage()
-		}
-	case "stream":
-		if p.hasMore {
 			a.fetchValuePage()
 		}
 	default:

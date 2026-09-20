@@ -158,16 +158,15 @@ func (a *App) renderTree() {
 	a.ns.SetCell(0, 1, cell(human(int64(t.Total())), a.th.Dim).SetSelectable(false).SetAlign(tview.AlignRight))
 	a.treeRows = rows
 	for i, r := range rows[1:] { // rows[0] is the synthetic root
-		mark, color := "  ", a.th.Text
+		mark := "  "
 		if r.Folder {
 			mark = "▸ "
 			if r.Expanded {
 				mark = "▾ "
 			}
-			color = a.th.Text
 		}
 		label := strings.Repeat("  ", r.Depth) + mark + r.Label
-		a.ns.SetCell(i+1, 0, cell(label, color))
+		a.ns.SetCell(i+1, 0, cell(label, a.th.Text))
 		a.ns.SetCell(i+1, 1, cell(human(int64(r.Count)), a.th.Dim).SetAlign(tview.AlignRight))
 	}
 	a.ns.Select(1, 0)
@@ -411,7 +410,7 @@ func (a *App) openFilter() {
 
 func (a *App) restoreCmdBar() {
 	a.cmd.SetLabel(" ❯ ").SetLabelColor(a.th.Read).SetText("").SetDoneFunc(nil).
-		SetPlaceholder("query (phase 3)")
+		SetPlaceholder(cmdPlaceholder)
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()
 }
