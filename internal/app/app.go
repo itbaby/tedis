@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -61,7 +62,8 @@ type App struct {
 	metaSeq  atomic.Uint64
 	flashSeq atomic.Uint64
 
-	openModals map[string]bool // currently-visible modal/overlay page names
+	openModals []string  // stack of visible modal/overlay pages, bottom → top
+	lastQ      time.Time // last bare-UI q press (double-q quits)
 
 	rc    atomic.Pointer[conn.Conn]
 	alert bool
@@ -70,12 +72,11 @@ type App struct {
 // New wires everything up. Run() starts the event loop.
 func New(cfg *config.Config, cfgPath string, log *slog.Logger) *App {
 	a := &App{
-		tapp:       tview.NewApplication(),
-		cfg:        cfg,
-		cfgPath:    cfgPath,
-		th:         theme.ByName(cfg.Settings.Theme),
-		log:        log,
-		openModals: map[string]bool{},
+		tapp:    tview.NewApplication(),
+		cfg:     cfg,
+		cfgPath: cfgPath,
+		th:      theme.ByName(cfg.Settings.Theme),
+		log:     log,
 	}
 	a.build()
 	return a
@@ -148,6 +149,23 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 		a.tapp.Stop()
 		return nil
 	}
+	// q is the universal exit: one press closes the top window; on the bare
+	// UI a second press within quitWindow quits the app. While a text field
+	// has focus, q belongs to the text (the filter/query bars implement
+	// their own empty-field q shortcut).
+	if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' && a.splash == nil && !a.fieldFocused() {
+		if top := a.topModal(); top != "" {
+			a.closeModal(top)
+			return nil
+		}
+		if time.Since(a.lastQ) <= quitWindow {
+			a.tapp.Stop()
+			return nil
+		}
+		a.lastQ = time.Now()
+		a.flash("press q again to quit", a.th.Warn)
+		return nil
+	}
 	// While typing (command bar or any modal input), only Tab/Backtab are
 	// intercepted: single-letter global shortcuts must never eat keystrokes
 	// meant for a text field.
@@ -216,9 +234,6 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 				}
 			}
 			return nil
-		case 'q':
-			a.tapp.Stop()
-			return nil
 		case 'c':
 			a.openConnect()
 			return nil
@@ -239,15 +254,34 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	return ev
 }
 
-// inTextInput reports whether the focused primitive (or an open modal) is in
-// text-entry mode, where letter keys must pass through untouched.
-func (a *App) inTextInput() bool {
+// quitWindow is how quickly the second q must land to quit the app.
+const quitWindow = 1500 * time.Millisecond
+
+// typingFocus reports whether the focused primitive is a text-entry widget,
+// where letters belong to the field rather than to keybindings.
+func (a *App) typingFocus() bool {
 	switch a.tapp.GetFocus().(type) {
 	case *tview.InputField, *tview.TextArea, *tview.Form, *tview.Button,
 		*tview.Checkbox, *tview.DropDown:
 		return true
 	}
-	return len(a.openModals) > 0
+	return false
+}
+
+// fieldFocused is the narrower q-gate: only widgets that actually consume
+// typed characters swallow the quit/close key (buttons and checkboxes don't).
+func (a *App) fieldFocused() bool {
+	switch a.tapp.GetFocus().(type) {
+	case *tview.InputField, *tview.TextArea, *tview.Form, *tview.DropDown:
+		return true
+	}
+	return false
+}
+
+// inTextInput reports whether the focused primitive (or an open modal) is in
+// text-entry mode, where letter keys must pass through untouched.
+func (a *App) inTextInput() bool {
+	return a.typingFocus() || len(a.openModals) > 0
 }
 
 // focusInPanes reports whether focus is on one of the main panes (not a
@@ -313,12 +347,30 @@ func (a *App) showModal(name string, p tview.Primitive, w, h int) {
 			h, 1, true,
 		).
 		AddItem(nil, 0, 1, false)
-	a.openModals[name] = true
+	a.pushModal(name)
 	a.pages.AddPage(name, centered, true, true)
 }
 
+func (a *App) pushModal(name string) {
+	if !slices.Contains(a.openModals, name) {
+		a.openModals = append(a.openModals, name)
+	}
+}
+
+func (a *App) popModal(name string) {
+	a.openModals = slices.DeleteFunc(a.openModals, func(m string) bool { return m == name })
+}
+
+// topModal is the most recently opened visible modal ("" when none).
+func (a *App) topModal() string {
+	if len(a.openModals) == 0 {
+		return ""
+	}
+	return a.openModals[len(a.openModals)-1]
+}
+
 func (a *App) closeModal(name string) {
-	delete(a.openModals, name)
+	a.popModal(name)
 	a.pages.RemovePage(name)
 	if a.modalPrev != nil {
 		a.tapp.SetFocus(a.modalPrev) // back to the pane we launched from
@@ -367,7 +419,7 @@ func helpText(th theme.Theme) string {
 		"",
 		hdr("connection"),
 		"  " + key("c") + desc(" connect   ") + key("a") + desc(" alert   ") + key("i") + desc(" info   ") + key("s") + desc(" settings"),
-		"  " + key("?") + desc(" this help    ") + key("q") + desc(" quit"),
+		"  " + key("?") + desc(" this help    ") + key("q") + desc(" close window · ") + key("qq") + desc(" quit"),
 	}, "\n")
 }
 

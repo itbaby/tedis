@@ -93,13 +93,13 @@ func (a *App) openQuery() {
 		}()
 	}
 	a.query.setTitle()
-	a.openModals["query"] = true
+	a.pushModal("query")
 	a.pages.ShowPage("query")
 	a.tapp.SetFocus(a.query.editor)
 }
 
 func (a *App) closeQuery() {
-	delete(a.openModals, "query")
+	a.popModal("query")
 	a.pages.HidePage("query")
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()

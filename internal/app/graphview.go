@@ -372,14 +372,14 @@ func (a *App) openGraph() {
 	}
 	a.graph = newGraphView(a, p.tree, p.key)
 	a.pages.RemovePage("graph")
-	a.openModals["graph"] = true
+	a.pushModal("graph")
 	a.pages.AddPage("graph", a.graph, true, true)
 	a.tapp.SetFocus(a.graph)
 }
 
 // closeGraph dismisses the diagram.
 func (a *App) closeGraph() {
-	delete(a.openModals, "graph")
+	a.popModal("graph")
 	a.pages.RemovePage("graph")
 	a.tapp.SetFocus(a.value)
 	a.applyFocusStyles()

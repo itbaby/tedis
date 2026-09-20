@@ -72,7 +72,7 @@ func (a *App) showSplash() {
 		AddItem(mid, splashH, 0, false).
 		AddItem(nil, 0, 1, false)
 
-	a.openModals["splash"] = true
+	a.pushModal("splash")
 	a.pages.HidePage("main")
 	a.pages.AddPage("splash", root, true, true)
 
@@ -102,7 +102,7 @@ func (a *App) showSplash() {
 }
 
 func (a *App) dismissSplash() {
-	delete(a.openModals, "splash")
+	a.popModal("splash")
 	a.pages.RemovePage("splash")
 	a.splash = nil
 	a.pages.ShowPage("main")
