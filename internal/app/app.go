@@ -440,6 +440,32 @@ func hex(c tcell.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", uint8(r), uint8(g), uint8(b))
 }
 
+// Form items get their style rebuilt by Form.Draw every frame from bare
+// colors (SetFormAttributes drops decorations), so per-field underline styles
+// never survive. These add helpers wrap fields in underlinedField, which
+// re-applies the app-wide editable underline from inside that hook.
+
+func addInput(form *tview.Form, label, value string, width int, changed func(string)) {
+	form.AddFormItem(underlinedField{tview.NewInputField().
+		SetLabel(label).SetText(value).SetFieldWidth(width).SetChangedFunc(changed)})
+}
+
+func addPassword(form *tview.Form, label, value string, width int, changed func(string)) {
+	form.AddFormItem(underlinedField{tview.NewInputField().
+		SetLabel(label).SetText(value).SetFieldWidth(width).SetMaskCharacter('*').SetChangedFunc(changed)})
+}
+
+type underlinedField struct {
+	tview.FormItem
+}
+
+func (u underlinedField) SetFormAttributes(labelWidth int, labelColor, bgColor, fieldTextColor, fieldBgColor tcell.Color) tview.FormItem {
+	u.FormItem.SetFormAttributes(labelWidth, labelColor, bgColor, fieldTextColor, fieldBgColor)
+	u.FormItem.(*tview.InputField).SetFieldStyle(
+		tcell.StyleDefault.Foreground(fieldTextColor).Background(fieldBgColor).Underline(true))
+	return u
+}
+
 // keysLocalKeys: per-key operations on the key list.
 func (a *App) keysLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	if ev.Key() != tcell.KeyRune {

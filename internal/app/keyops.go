@@ -77,20 +77,18 @@ func (a *App) promptModal(title, label, initial string, fn func(string)) {
 	form := tview.NewForm().SetButtonsAlign(tview.AlignCenter).SetFieldBackgroundColor(tcell.ColorDefault)
 	form.SetLabelColor(a.th.Dim)
 	input := initial
-	form.AddInputField(label, initial, 40, nil, func(s string) { input = s })
 	ok := func() {
 		a.closeModal("prompt")
 		fn(input)
 	}
-	if item := form.GetFormItem(0); item != nil {
-		if in, isField := item.(*tview.InputField); isField {
-			in.SetDoneFunc(func(key tcell.Key) {
-				if key == tcell.KeyEnter {
-					ok()
-				}
-			})
-		}
-	}
+	field := tview.NewInputField().SetLabel(label).SetText(initial).SetFieldWidth(40).
+		SetChangedFunc(func(s string) { input = s }).
+		SetDoneFunc(func(key tcell.Key) {
+			if key == tcell.KeyEnter {
+				ok()
+			}
+		})
+	form.AddFormItem(underlinedField{field})
 	form.AddButton("ok", ok)
 	form.AddButton("cancel", func() { a.closeModal("prompt") })
 	form.SetCancelFunc(func() { a.closeModal("prompt") })
@@ -173,7 +171,7 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 			content += lines
 			continue
 		}
-		form.AddInputField(f.label, f.initial, 0, nil, nil)
+		addInput(form, f.label, f.initial, 0, nil)
 		content++
 	}
 	height += content + len(fields) // items + padding between them
@@ -216,6 +214,9 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 
 // formText reads the current text of a form item (input or text area).
 func formText(item tview.FormItem) string {
+	if u, wrapped := item.(underlinedField); wrapped {
+		item = u.FormItem
+	}
 	switch f := item.(type) {
 	case *tview.InputField:
 		return f.GetText()

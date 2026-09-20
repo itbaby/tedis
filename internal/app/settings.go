@@ -37,17 +37,17 @@ func (a *App) openSettings() {
 			s.Language = opt
 		}
 	})
-	form.AddInputField("scan count", strconv.Itoa(scan), 6, nil, func(v string) {
+	addInput(form, "scan count", strconv.Itoa(scan), 6, func(v string) {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			scan = n
 		}
 	})
-	form.AddInputField("separator", sep, 4, nil, func(v string) {
+	addInput(form, "separator", sep, 4, func(v string) {
 		if v != "" {
 			sep = v
 		}
 	})
-	form.AddInputField("max fold level", strconv.Itoa(fold), 4, nil, func(v string) {
+	addInput(form, "max fold level", strconv.Itoa(fold), 4, func(v string) {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			fold = n
 		}

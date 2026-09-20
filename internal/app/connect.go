@@ -120,20 +120,20 @@ func (a *App) openConnect() {
 
 	buildForm := func() {
 		form.Clear(false)
-		form.AddInputField("name", fName, 16, nil, func(s string) { fName = s })
-		form.AddInputField("host", fHost, 20, nil, func(s string) { fHost = s })
-		form.AddInputField("port", fPort, 6, nil, func(s string) { fPort = s })
-		form.AddInputField("db", fDB, 3, nil, func(s string) { fDB = s })
-		form.AddInputField("user", fUser, 12, nil, func(s string) { fUser = s })
-		form.AddPasswordField("password", fPass, 12, '*', func(s string) { fPass = s })
+		addInput(form, "name", fName, 16, func(s string) { fName = s })
+		addInput(form, "host", fHost, 20, func(s string) { fHost = s })
+		addInput(form, "port", fPort, 6, func(s string) { fPort = s })
+		addInput(form, "db", fDB, 3, func(s string) { fDB = s })
+		addInput(form, "user", fUser, 12, func(s string) { fUser = s })
+		addPassword(form, "password", fPass, 12, func(s string) { fPass = s })
 		form.AddCheckbox("tls", fTLS, func(b bool) { fTLS = b })
 		form.AddCheckbox("tls insecure", fInsecure, func(b bool) { fInsecure = b })
 		form.AddCheckbox("cluster", fCluster, func(b bool) { fCluster = b })
-		form.AddInputField("ssh host", fSSHHost, 16, nil, func(s string) { fSSHHost = s })
-		form.AddInputField("ssh port", fSSHPort, 5, nil, func(s string) { fSSHPort = s })
-		form.AddInputField("ssh user", fSSHUser, 10, nil, func(s string) { fSSHUser = s })
-		form.AddInputField("ssh key", fSSHKey, 14, nil, func(s string) { fSSHKey = s })
-		form.AddPasswordField("ssh pass", fSSHPass, 10, '*', func(s string) { fSSHPass = s })
+		addInput(form, "ssh host", fSSHHost, 16, func(s string) { fSSHHost = s })
+		addInput(form, "ssh port", fSSHPort, 5, func(s string) { fSSHPort = s })
+		addInput(form, "ssh user", fSSHUser, 10, func(s string) { fSSHUser = s })
+		addInput(form, "ssh key", fSSHKey, 14, func(s string) { fSSHKey = s })
+		addPassword(form, "ssh pass", fSSHPass, 10, func(s string) { fSSHPass = s })
 	}
 
 	collect := func() (*config.Profile, error) {
