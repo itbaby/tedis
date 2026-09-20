@@ -67,7 +67,8 @@ c conn  : query  / filter  r rescan  i info  s settings  a alert:off  ? help  q 
 
 ```sh
 brew tap itbaby/tedis
-brew install tedis
+brew trust itbaby/tedis      # one-time trust for third-party taps
+brew install --cask tedis
 ```
 
 Or download a prebuilt binary from the
