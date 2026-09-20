@@ -52,6 +52,7 @@ type App struct {
 	inFill     bool
 	valPage    *valuePage
 	query      *queryPage
+	splash     *tview.TextView
 	focusOrder []tview.Primitive
 
 	// metaSeq/flashSeq are read from fetch goroutines/timers, hence atomic;
@@ -134,7 +135,10 @@ func (a *App) build() {
 }
 
 // Run enters the tview event loop.
-func (a *App) Run() error { return a.tapp.Run() }
+func (a *App) Run() error {
+	a.showSplash()
+	return a.tapp.Run()
+}
 
 // ---- global keys -------------------------------------------------------
 

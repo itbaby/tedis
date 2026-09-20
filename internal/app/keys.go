@@ -385,7 +385,17 @@ func (a *App) openFilter() {
 	}
 	a.cmd.SetLabel(" / ").SetLabelColor(a.th.Dim).SetText("").
 		SetPlaceholder("substring · ~fuzzy · * ? glob · current: " + cur).
-		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
+		SetFieldStyle(tcell.StyleDefault.Foreground(a.th.Text).Underline(true)).
+		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim).Underline(true))
+	// With an empty bar, `q` backs out to panel-selection mode (like Vim's
+	// abort); once there's text, `q` is just a keystroke for the pattern.
+	a.cmd.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' && a.cmd.GetText() == "" {
+			a.restoreCmdBar()
+			return nil
+		}
+		return ev
+	})
 	a.tapp.SetFocus(a.cmd)
 	a.cmd.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
@@ -416,7 +426,10 @@ func (a *App) openFilter() {
 
 func (a *App) restoreCmdBar() {
 	a.cmd.SetLabel(" ❯ ").SetLabelColor(a.th.Read).SetText("").SetDoneFunc(nil).
+		SetFieldStyle(tcell.StyleDefault.Foreground(a.th.Text)).
+		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim)).
 		SetPlaceholder(cmdPlaceholder)
+	a.cmd.SetInputCapture(nil)
 	a.tapp.SetFocus(a.keys)
 	a.applyFocusStyles()
 }

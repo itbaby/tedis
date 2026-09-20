@@ -36,12 +36,12 @@ type queryPage struct {
 func newQueryPage(a *App) *queryPage {
 	q := &queryPage{app: a}
 	q.editor = tview.NewTextArea().
-		SetPlaceholder("type commands…  ^R run  ^A alert  ^P/^N history  esc close")
+		SetPlaceholder("type commands…  ^R run  ^A alert  ^P/^N history  esc/q close")
 	q.editor.SetBorder(true).
 		SetTitle(" query ").
 		SetTitleColor(a.th.Title).SetTitleAlign(tview.AlignLeft)
-	q.editor.SetTextStyle(tcell.StyleDefault.Foreground(a.th.Text))
-	q.editor.SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
+	q.editor.SetTextStyle(tcell.StyleDefault.Foreground(a.th.Text).Underline(true))
+	q.editor.SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim).Underline(true))
 
 	q.preview = tview.NewTextView().SetDynamicColors(true)
 
@@ -114,6 +114,13 @@ func (q *queryPage) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyEscape:
 		q.app.closeQuery()
 		return nil
+	// `q` on an empty editor backs out to panel-selection mode; once there's
+	// text (or a non-first keystroke), `q` is just a command character.
+	case tcell.KeyRune:
+		if ev.Rune() == 'q' && q.text() == "" {
+			q.app.closeQuery()
+			return nil
+		}
 	case tcell.KeyCtrlP:
 		q.recallHistory(-1)
 		return nil
