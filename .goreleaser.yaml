@@ -17,6 +17,17 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+brews:
+  - name: tedis
+    repository:
+      owner: itbaby
+      name: homebrew-tedis
+    homepage: "https://github.com/itbaby/tedis"
+    description: "Keyboard-driven Redis TUI: tree browser, live value inspector, query console"
+    commit_author:
+      name: itbaby
+      email: itbaby@users.noreply.github.com
+
 changelog:
   sort: asc
   filters:

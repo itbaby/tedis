@@ -65,7 +65,12 @@ c conn  : query  / filter  r rescan  i info  s settings  a alert:off  ? help  q 
 
 ## Install
 
-Download a prebuilt binary from the
+```sh
+brew tap itbaby/tedis
+brew install tedis
+```
+
+Or download a prebuilt binary from the
 [latest release](https://github.com/itbaby/tedis/releases) — `linux` and
 `macOS`, `amd64` and `arm64`:
 
