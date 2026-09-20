@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -40,6 +39,9 @@ func splashStatus(p float64) string {
 	return lines[i]
 }
 
+// spinFrames is the braille dots spinner popularized by opencode / Copilot CLI.
+var spinFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
 // showSplash paints a small, centered boot card (the main page is hidden while
 // it runs) and dismisses it after splashDur, keeping the app blocked — and
 // focus held — until it is gone.
@@ -58,7 +60,7 @@ func (a *App) showSplash() {
 	card.SetBorder(true).
 		SetTitle(" tedis ").
 		SetTitleColor(a.th.Title).
-		SetBorderColor(a.th.Title)
+		SetBorderColor(a.th.Dim)
 	card.SetInputCapture(func(*tcell.EventKey) *tcell.EventKey { return nil }) // eat everything
 	a.splash = card
 
@@ -111,33 +113,31 @@ func (a *App) dismissSplash() {
 	a.applyFocusStyles()
 }
 
-// renderSplash paints the animated card: a rainbow wordmark, a shimmering
-// gradient bar, and an opencode-style braille spinner that recolors as it turns.
+// renderSplash paints the boot card in a quiet grayscale palette (white
+// foreground on grays): wordmark, slogan, a two-tone progress bar, a braille
+// spinner, and the sign-off.
 func (a *App) renderSplash(p float64, tick int) {
 	th := a.th
-	bar := gradientBar(p, hex(th.Dim), tick)
-	pct := "[" + hex(th.Text) + "]" + fmt.Sprintf("%3d%%", int(p*100)) + "[-]"
-
-	pal := []tcell.Color{th.Title, th.TypeHash, th.TypeSet, th.Write, th.TypeString}
+	bar := loadBar(p, hex(th.Text), hex(th.Border))
+	pct := fmt.Sprintf("%3d%%", int(p*100))
 	spin := spinFrames[tick%len(spinFrames)]
-	spinCol := hex(pal[(tick/2)%len(pal)])
 
-	content := fmt.Sprintf(`%s
+	content := fmt.Sprintf(`[%s]%s[-]
 
 [%s]the Redis GUI that lives in your terminal[-]
 [%s]no Electron · no Chromium · no regrets[-]
 
-%s  %s
+%s [%s]%s[-]
 [%s]%c[-]  [%s]%s[-]
 
 [%s]crafted by itbaby[-] · [%s]github.com/itbaby/tedis[-]`,
-		gradient(splashLogo),
-		hex(th.Title),
-		hex(th.SelFg),
-		bar, pct,
-		spinCol, spin,
-		hex(th.Warn), splashStatus(p),
-		hex(th.Text), hex(th.Dim))
+		hex(th.Text), splashLogo,
+		hex(th.Text),
+		hex(th.Dim),
+		bar, hex(th.Dim), pct,
+		hex(th.Text), spin,
+		hex(th.Dim), splashStatus(p),
+		hex(th.Dim), hex(th.Dim))
 
 	lines := strings.Count(content, "\n") + 1
 	_, _, _, ih := a.splash.GetInnerRect()
@@ -148,61 +148,10 @@ func (a *App) renderSplash(p float64, tick int) {
 	a.splash.SetText(strings.Repeat("\n", pad) + content)
 }
 
-// spinFrames is the braille dots spinner popularized by opencode / Copilot CLI.
-var spinFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-
-// gradientBar draws a filled track of bw cells: filled cells shimmer through a
-// moving truecolor hue sweep (offset by tick), empty cells stay dim.
-func gradientBar(p float64, track string, tick int) string {
+// loadBar renders a bw-cell track: filled cells in fg, the remainder in bg.
+func loadBar(p float64, fg, bg string) string {
 	const bw = 30
-	fill := int(math.Round(p * float64(bw)))
-	var b strings.Builder
-	for i := 0; i < bw; i++ {
-		if i < fill {
-			hue := math.Mod(float64(i)/float64(bw)+float64(tick)*0.08, 1)
-			fmt.Fprintf(&b, "[#%06x]▰[-]", hsl2rgb(hue, 0.85, 0.62))
-		} else {
-			b.WriteString("[" + track + "]▱[-]")
-		}
-	}
-	return b.String()
-}
-
-// gradient wraps every glyph of s in a truecolor code that sweeps the hue
-// across the whole block, giving the wordmark a colorful rainbow.
-func gradient(s string) string {
-	runes := []rune(s)
-	total := len(runes)
-	var b strings.Builder
-	for i, r := range runes {
-		if r == ' ' || r == '\n' {
-			b.WriteRune(r)
-			continue
-		}
-		fmt.Fprintf(&b, "[#%06x]%c[-]", hsl2rgb(float64(i)/float64(total), 0.9, 0.66), r)
-	}
-	return b.String()
-}
-
-// hsl2rgb converts HSL (h, s, l in [0,1]) to a packed 0xRRGGBB integer.
-func hsl2rgb(h, s, l float64) int {
-	c := (1 - math.Abs(2*l-1)) * s
-	x := c * (1 - math.Abs(math.Mod(h*6, 2)-1))
-	m := l - c/2
-	var r, g, b float64
-	switch {
-	case h < 1.0/6:
-		r, g, b = c, x, 0
-	case h < 2.0/6:
-		r, g, b = x, c, 0
-	case h < 3.0/6:
-		r, g, b = 0, c, x
-	case h < 4.0/6:
-		r, g, b = 0, x, c
-	case h < 5.0/6:
-		r, g, b = x, 0, c
-	default:
-		r, g, b = c, 0, x
-	}
-	return int((r+m)*255+.5)<<16 | int((g+m)*255+.5)<<8 | int((b+m)*255+.5)
+	fill := int(p*float64(bw) + 0.5)
+	return "[" + fg + "]" + strings.Repeat("▰", fill) +
+		"[-][" + bg + "]" + strings.Repeat("▱", bw-fill) + "[-]"
 }
