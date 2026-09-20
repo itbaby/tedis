@@ -59,6 +59,7 @@ func (a *App) openConnect() {
 	list.SetSelectedStyle(tcell.StyleDefault.Background(a.th.SelBg).Foreground(a.th.SelFg))
 
 	form := tview.NewForm().SetButtonsAlign(tview.AlignCenter)
+	form.SetItemPadding(0) // compact: no blank row between fields
 	form.SetBorder(true).SetTitle(" profile ").SetTitleColor(a.th.Title).
 		SetTitleAlign(tview.AlignLeft)
 	form.SetFieldBackgroundColor(tcell.ColorDefault)
@@ -269,7 +270,7 @@ func (a *App) openConnect() {
 		}
 		return ev
 	})
-	a.showModal("connect", body, 82, 24)
+	a.showModal("connect", body, 82, 22)
 }
 
 // barBtn is one entry of a one-line button bar.
