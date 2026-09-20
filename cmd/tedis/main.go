@@ -16,14 +16,22 @@ import (
 	"tedis/internal/i18n"
 )
 
+// version is stamped at build time (-ldflags "-X main.version=vX.Y.Z").
+var version = "dev"
+
 func main() {
 	var (
 		profile = flag.String("c", "", "connect to a named profile from the config")
 		urlArg  = flag.String("u", "", "connect via redis:// or rediss:// URL")
 		sshArg  = flag.String("ssh", "", "SSH jump host user@host[:port] (with -u)")
 		keyArg  = flag.String("i", "", "SSH identity file (with -ssh)")
+		ver     = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
+	if *ver {
+		fmt.Println("tedis " + version)
+		return
+	}
 
 	i18n.Init()
 	logger := newLogger()
