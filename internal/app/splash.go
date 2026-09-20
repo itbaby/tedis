@@ -56,11 +56,8 @@ func (a *App) showSplash() {
 		SetDynamicColors(true).
 		SetTextColor(a.th.Text).
 		SetTextAlign(tview.AlignCenter)
-	card.SetBackgroundColor(tcell.ColorDefault) // no filled box — inherit the terminal
-	card.SetBorder(true).
-		SetTitle(" tedis ").
-		SetTitleColor(a.th.Title).
-		SetBorderColor(a.th.Dim)
+	card.SetBackgroundColor(tcell.ColorDefault)                                // no filled box — inherit the terminal
+	card.SetBorder(false)                                                      // wordmark carries the name; skip the box
 	card.SetInputCapture(func(*tcell.EventKey) *tcell.EventKey { return nil }) // eat everything
 	a.splash = card
 
