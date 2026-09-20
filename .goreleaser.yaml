@@ -27,6 +27,10 @@ homebrew_casks:
     commit_author:
       name: itbaby
       email: itbaby@users.noreply.github.com
+    custom_block: |
+      postflight do
+        system "/usr/bin/xattr", "-dr", "com.apple.quarantine", staged_path.to_s
+      end
 
 changelog:
   sort: asc
