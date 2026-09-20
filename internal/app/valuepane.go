@@ -33,6 +33,10 @@ type valuePage struct {
 	decoded   string      // decoded text (string/ReJSON payloads)
 	tree      *jtree.Node // universal value tree over the page
 	treeRows  []jtree.Row
+
+	findTerm  string // json find query ("" = inactive)
+	findPos   int    // index of the current match within findCount
+	findCount int    // total matches for findTerm
 }
 
 // Redis key kinds used throughout the value layer (from TYPE).
@@ -187,6 +191,9 @@ func (a *App) fetchValuePage() {
 			}
 			p.tree = nil // page changed: rebuild the tree on the next render
 			a.renderValue()
+			if p.findTerm != "" { // keep an active find across pages
+				a.findJump()
+			}
 		})
 	}()
 }
@@ -367,7 +374,20 @@ func (a *App) renderValueTitle(n int) {
 	if p.hasMore {
 		t += "+"
 	}
+	if p.isJSONView() {
+		if p.findTerm != "" {
+			t += fmt.Sprintf(" · ⌕%q %d/%d", p.findTerm, p.findPos+1, p.findCount)
+		} else {
+			t += " · ⌕ f ] ["
+		}
+	}
 	a.value.SetTitle(t + " ")
+}
+
+// isJSONView reports whether the pane shows a decoded JSON document (a JSON
+// string payload or a RedisJSON key) — the only place the finder applies.
+func (p *valuePage) isJSONView() bool {
+	return isTextKind(p.kind) && p.tree != nil && p.tree.IsBranch()
 }
 
 func (a *App) renderValue() {
@@ -581,4 +601,115 @@ func (a *App) prevValuePage() {
 		return
 	}
 	a.flash("cursor pages are forward-only (r to restart)", a.th.Dim)
+}
+
+// ---- json finder ---------------------------------------------------------
+
+// openFind arms the command bar for a JSON find: enter jumps to the first
+// match, esc clears the finder.
+func (a *App) openFind() {
+	p := a.valPage
+	if p == nil || !p.isJSONView() {
+		a.flash("finder applies to json values", a.th.Dim)
+		return
+	}
+	a.cmd.SetLabel(" ⌕ ").SetLabelColor(a.th.Dim).SetText(p.findTerm).
+		SetPlaceholder("find in json · enter jump · esc clear").
+		SetFieldStyle(tcell.StyleDefault.Foreground(a.th.Text).Underline(true)).
+		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim).Underline(true))
+	a.cmd.SetInputCapture(nil)
+	a.tapp.SetFocus(a.cmd)
+	a.cmd.SetDoneFunc(func(key tcell.Key) {
+		term := strings.TrimSpace(a.cmd.GetText())
+		if key != tcell.KeyEnter {
+			term = ""
+		}
+		a.restoreCmdBar()
+		a.tapp.SetFocus(a.value)
+		a.applyFocusStyles()
+		if a.valPage == nil {
+			return
+		}
+		a.valPage.findTerm, a.valPage.findPos = term, 0
+		if term == "" {
+			a.valPage.findCount = 0
+			a.renderValue()
+			return
+		}
+		a.findJump()
+	})
+}
+
+// findNext steps through the matches, wrapping at both ends.
+func (a *App) findNext(dir int) {
+	p := a.valPage
+	if p == nil || p.findTerm == "" || p.findCount == 0 {
+		a.flash("no active find (f to start one)", a.th.Dim)
+		return
+	}
+	p.findPos = (p.findPos + dir + p.findCount) % p.findCount
+	a.findJump()
+}
+
+// findJump recomputes matches (cheap, and robust to edits made mid-search),
+// opens the branches hiding the current one, and parks the cursor on it.
+func (a *App) findJump() {
+	p := a.valPage
+	if p == nil || p.tree == nil || p.findTerm == "" {
+		return
+	}
+	matches := collectMatches(p.tree, p.findTerm)
+	p.findCount = len(matches)
+	if p.findPos >= p.findCount {
+		p.findPos = 0
+	}
+	if p.findCount == 0 {
+		a.renderValue()
+		a.flash("no match", a.th.Warn)
+		return
+	}
+	target := matches[p.findPos]
+	expandTo(p.tree, target)
+	a.renderValue() // ancestors now open: the target has a row
+	for i, r := range p.treeRows {
+		if r.Node == target {
+			a.value.Select(i+1, 0)
+			return
+		}
+	}
+}
+
+// collectMatches lists nodes whose label or scalar text contains term
+// (case-insensitive), in tree order.
+func collectMatches(root *jtree.Node, term string) []*jtree.Node {
+	lt := strings.ToLower(term)
+	var out []*jtree.Node
+	var walk func(n *jtree.Node)
+	walk = func(n *jtree.Node) {
+		if n != root && (strings.Contains(strings.ToLower(n.Label), lt) ||
+			!n.IsBranch() && strings.Contains(strings.ToLower(jtree.ScalarText(n)), lt)) {
+			out = append(out, n)
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(root)
+	return out
+}
+
+// expandTo opens every branch between root and target so the target row
+// becomes visible. Reports whether target is in the tree.
+func expandTo(root, target *jtree.Node) bool {
+	for _, c := range root.Children {
+		if c == target {
+			return true
+		}
+		if c.IsBranch() && expandTo(c, target) {
+			c.Inline = false
+			c.Expanded = true
+			return true
+		}
+	}
+	return false
 }

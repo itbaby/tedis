@@ -338,7 +338,7 @@ func (a *App) openHelp() {
 		}
 		return ev
 	})
-	a.showModal("help", tv, 56, 19)
+	a.showModal("help", tv, 56, 20)
 }
 
 // helpText lays out the keybind cheatsheet. Colors use proper [#hex]…[-]
@@ -363,6 +363,7 @@ func helpText(th theme.Theme) string {
 		"  " + key("⏎") + desc(" edit/fold    ") + key("e") + desc(" edit row   ") + key("v") + desc(" codec"),
 		"  " + key("d") + desc(" delete item  ") + key("n") + desc(" new item   ") + key("g") + desc(" graph"),
 		"  " + key("l / ←→") + desc(" fold     ") + key(".") + desc(" next page  ") + key(",") + desc(" prev"),
+		"  " + key("f") + desc(" find json  ") + key("] [") + desc(" next/prev match"),
 		"",
 		hdr("connection"),
 		"  " + key("c") + desc(" connect   ") + key("a") + desc(" alert   ") + key("i") + desc(" info   ") + key("s") + desc(" settings"),
@@ -480,10 +481,25 @@ func (a *App) valueLocalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyLeft, tcell.KeyRight:
 		a.valueToggle()
 		return nil
+	case tcell.KeyEscape:
+		if p := a.valPage; p != nil && p.findTerm != "" {
+			p.findTerm, p.findPos, p.findCount = "", 0, 0
+			a.renderValue()
+			return nil
+		}
 	case tcell.KeyRune:
 		switch ev.Rune() {
 		case 'e':
 			a.editValueItem()
+			return nil
+		case 'f':
+			a.openFind()
+			return nil
+		case ']':
+			a.findNext(1)
+			return nil
+		case '[':
+			a.findNext(-1)
 			return nil
 		case 'l':
 			a.valueToggle()
