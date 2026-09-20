@@ -109,13 +109,12 @@ func (a *App) dismissSplash() {
 	a.applyFocusStyles()
 }
 
-// renderSplash paints the animated card: a rainbow wordmark, a live progress
-// bar, and an opencode-style braille spinner that recolors as it turns.
+// renderSplash paints the animated card: a rainbow wordmark, a shimmering
+// gradient bar, and an opencode-style braille spinner that recolors as it turns.
 func (a *App) renderSplash(p float64, tick int) {
 	th := a.th
-	const bw = 28
-	fill := int(p * float64(bw))
-	bar := strings.Repeat("▓", fill) + strings.Repeat("░", bw-fill)
+	bar := gradientBar(p, hex(th.Dim), tick)
+	pct := "[" + hex(th.Text) + "]" + fmt.Sprintf("%3d%%", int(p*100)) + "[-]"
 
 	pal := []tcell.Color{th.Title, th.TypeHash, th.TypeSet, th.Write, th.TypeString}
 	spin := spinFrames[tick%len(spinFrames)]
@@ -126,14 +125,14 @@ func (a *App) renderSplash(p float64, tick int) {
 [%s]the Redis GUI that lives in your terminal[-]
 [%s]no Electron · no Chromium · no regrets[-]
 
-[%s]%s %s[-]
+%s  %s
 [%s]%c[-]  [%s]%s[-]
 
 [%s]crafted by itbaby[-] · [%s]github.com/itbaby/tedis[-]`,
 		gradient(splashLogo),
 		hex(th.Title),
 		hex(th.SelFg),
-		hex(th.OK), bar, fmt.Sprintf("%3d%%", int(p*100)),
+		bar, pct,
 		spinCol, spin,
 		hex(th.Warn), splashStatus(p),
 		hex(th.Text), hex(th.Dim))
@@ -149,6 +148,23 @@ func (a *App) renderSplash(p float64, tick int) {
 
 // spinFrames is the braille dots spinner popularized by opencode / Copilot CLI.
 var spinFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+// gradientBar draws a filled track of bw cells: filled cells shimmer through a
+// moving truecolor hue sweep (offset by tick), empty cells stay dim.
+func gradientBar(p float64, track string, tick int) string {
+	const bw = 30
+	fill := int(math.Round(p * float64(bw)))
+	var b strings.Builder
+	for i := 0; i < bw; i++ {
+		if i < fill {
+			hue := math.Mod(float64(i)/float64(bw)+float64(tick)*0.08, 1)
+			fmt.Fprintf(&b, "[#%06x]▰[-]", hsl2rgb(hue, 0.85, 0.62))
+		} else {
+			b.WriteString("[" + track + "]▱[-]")
+		}
+	}
+	return b.String()
+}
 
 // gradient wraps every glyph of s in a truecolor code that sweeps the hue
 // across the whole block, giving the wordmark a colorful rainbow.

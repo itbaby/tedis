@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"tedis/internal/scanner"
 	"time"
@@ -327,8 +328,8 @@ func (a *App) closeModal(name string) {
 }
 
 func (a *App) openHelp() {
-	tv := tview.NewTextView().SetDynamicColors(true)
-	tv.SetBorder(true).SetTitle(" help ").SetTitleColor(a.th.Title)
+	tv := tview.NewTextView().SetDynamicColors(true).SetTextColor(a.th.Text)
+	tv.SetBorder(true).SetTitle(" help · esc/q close ").SetTitleColor(a.th.Title)
 	tv.SetText(helpText(a.th))
 	tv.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		if ev.Key() == tcell.KeyEsc || ev.Key() == tcell.KeyEnter || ev.Rune() == 'q' {
@@ -337,30 +338,36 @@ func (a *App) openHelp() {
 		}
 		return ev
 	})
-	a.showModal("help", tv, 56, 16)
+	a.showModal("help", tv, 56, 19)
 }
 
+// helpText lays out the keybind cheatsheet. Colors use proper [#hex]…[-]
+// spans and each entry is a literal string, so column spacing stays exact —
+// dynamic-color tags are invisible to the terminal's cell layout.
 func helpText(th theme.Theme) string {
-	dim, hi := hex(th.Dim), hex(th.Title)
-	return fmt.Sprintf(`[%s]navigation[-]
-  [%s]Tab[-]%s cycle panes        [%s]arrows[-]%s move selection
-  [%s]⌘/⌥←→[-]%s jump panes (needs a kitty-protocol or Option-as-Esc terminal)
-  [%s]/[-]%s filter keys          [%s]r[-]%s rescan      [%s]:[-]%s query
+	hi, dim, sec := hex(th.Title), hex(th.Dim), hex(th.TypeHash)
+	key := func(s string) string { return "[" + hi + "]" + s + "[-]" }
+	desc := func(s string) string { return "[" + dim + "]" + s + "[-]" }
+	hdr := func(s string) string { return "[" + sec + "]▸ " + s + "[-]" }
 
-[%s]key list[-]
-  [%s]d[-]%s delete  [%s]t[-]%s ttl  [%s]m[-]%s rename  [%s]y[-]%s copy
-
-[%s]value pane[-]
-  [%s]⏎[-]%s edit leaf / fold   [%s]e[-]%s edit any row   [%s]d[-]%s delete item  [%s]n[-]%s new item
-  [%s]l/←→[-]%s fold tree        [%s]v[-]%s codec          [%s]g[-]%s graph
-  [%s].[-]%s next page            [%s],[-]%s prev page (list)
-
-[%s]connection[-]
-  [%s]c[-]%s connect / profiles   [%s]a[-]%s alert mode     [%s]q[-]%s quit`,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi,
-		dim, hi, dim, hi, dim, hi, dim, hi, dim, hi, dim, hi)
+	return strings.Join([]string{
+		hdr("navigation"),
+		"  " + key("Tab") + desc(" cycle panes     ") + key("/") + desc(" filter keys"),
+		"  " + key("arrows") + desc(" move selection  ") + key(":") + desc(" query console"),
+		"  " + key("⌘/⌥←→") + desc(" jump panes       ") + key("r") + desc(" rescan"),
+		"",
+		hdr("key list"),
+		"  " + key("d") + desc(" delete   ") + key("t") + desc(" ttl   ") + key("m") + desc(" rename   ") + key("y") + desc(" copy"),
+		"",
+		hdr("value pane"),
+		"  " + key("⏎") + desc(" edit/fold    ") + key("e") + desc(" edit row   ") + key("v") + desc(" codec"),
+		"  " + key("d") + desc(" delete item  ") + key("n") + desc(" new item   ") + key("g") + desc(" graph"),
+		"  " + key("l / ←→") + desc(" fold     ") + key(".") + desc(" next page  ") + key(",") + desc(" prev"),
+		"",
+		hdr("connection"),
+		"  " + key("c") + desc(" connect   ") + key("a") + desc(" alert   ") + key("i") + desc(" info   ") + key("s") + desc(" settings"),
+		"  " + key("?") + desc(" this help    ") + key("q") + desc(" quit"),
+	}, "\n")
 }
 
 // ---- status ------------------------------------------------------------
