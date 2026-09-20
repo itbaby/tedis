@@ -52,7 +52,7 @@ func (a *App) showSplash() {
 		SetDynamicColors(true).
 		SetTextColor(a.th.Text).
 		SetTextAlign(tview.AlignCenter)
-	card.SetBackgroundColor(tcell.ColorBlack)
+	card.SetBackgroundColor(tcell.ColorDefault) // no filled box — inherit the terminal
 	card.SetBorder(true).
 		SetTitle(" tedis ").
 		SetTitleColor(a.th.Title).
