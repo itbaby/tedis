@@ -10,13 +10,15 @@ import (
 	"github.com/rivo/tview"
 )
 
-// splashLogo is a plain-ASCII wordmark: letterforms stay monospace-safe in
-// every terminal, so centering never drifts.
-const splashLogo = `TTTTTT EEEEEE DDDDDD   IIIIII SSSSSS
-  TT   EE     DD   DD     II   SS
-  TT   EEEE   DD   DD     II   SSSSS
-  TT   EE     DD   DD     II       SS
-  TT   EEEEEE DDDDDD   IIIIII SSSSSS`
+// splashLogo is the ANSI-Shadow wordmark. Every row is padded to the same 36
+// columns so AlignCenter keeps the block perfectly stacked (per-line centering
+// would otherwise shear rows of differing width).
+const splashLogo = `████████╗███████╗██████╗ ██╗███████╗
+╚══██╔══╝██╔════╝██╔══██╗██║██╔════╝
+   ██║   █████╗  ██║  ██║██║███████╗
+   ██║   ██╔══╝  ██║  ██║██║╚════██║
+   ██║   ███████╗██████╔╝██║███████║
+   ╚═╝   ╚══════╝╚═════╝ ╚═╝╚══════╝`
 
 // splashStatus rotates through loading lines by progress bucket — the joke is
 // that there is nothing actually slow here, we just enjoy the drama.
