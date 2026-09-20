@@ -37,25 +37,42 @@ func splashStatus(p float64) string {
 	return lines[i]
 }
 
-// showSplash paints a full-screen boot card and dismisses it after splashDur,
-// keeping the app blocked (and focus held) until it is gone.
-const splashDur = 3 * time.Second
+// showSplash paints a small, centered boot card (the main page is hidden while
+// it runs) and dismisses it after splashDur, keeping the app blocked — and
+// focus held — until it is gone.
+const (
+	splashDur = 3 * time.Second
+	splashW   = 52
+	splashH   = 16
+)
 
 func (a *App) showSplash() {
-	tv := tview.NewTextView().
+	card := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextColor(a.th.Text).
 		SetTextAlign(tview.AlignCenter)
-	tv.SetBackgroundColor(a.th.SelBg)
-	tv.SetBorder(true).
-		SetTitle(" tedis · redis in your terminal ").
+	card.SetBackgroundColor(a.th.SelBg)
+	card.SetBorder(true).
+		SetTitle(" tedis ").
 		SetTitleColor(a.th.Title).
 		SetBorderColor(a.th.Title)
-	tv.SetInputCapture(func(*tcell.EventKey) *tcell.EventKey { return nil }) // eat everything
-	a.splash = tv
+	card.SetInputCapture(func(*tcell.EventKey) *tcell.EventKey { return nil }) // eat everything
+	a.splash = card
+
+	// Center a fixed-size card. A Flex is transparent, so we hide the main page
+	// for the duration of the splash to keep the panes from bleeding through.
+	mid := tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(card, splashW, 0, true).
+		AddItem(nil, 0, 1, false)
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(mid, splashH, 0, false).
+		AddItem(nil, 0, 1, false)
 
 	a.openModals["splash"] = true
-	a.pages.AddPage("splash", tv, true, true)
+	a.pages.HidePage("main")
+	a.pages.AddPage("splash", root, true, true)
 
 	a.renderSplash(0)
 	go func() {
