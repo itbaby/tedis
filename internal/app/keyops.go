@@ -81,14 +81,13 @@ func (a *App) promptModal(title, label, initial string, fn func(string)) {
 		a.closeModal("prompt")
 		fn(input)
 	}
-	field := tview.NewInputField().SetLabel(label).SetText(initial).SetFieldWidth(40).
-		SetChangedFunc(func(s string) { input = s }).
-		SetDoneFunc(func(key tcell.Key) {
-			if key == tcell.KeyEnter {
-				ok()
-			}
-		})
-	form.AddFormItem(underlinedField{field})
+	field := a.newInput(label, initial, 40, func(s string) { input = s })
+	field.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			ok()
+		}
+	})
+	form.AddFormItem(underlinedField{FormItem: field})
 	form.AddButton("ok", ok)
 	form.AddButton("cancel", func() { a.closeModal("prompt") })
 	form.SetCancelFunc(func() { a.closeModal("prompt") })
@@ -165,13 +164,15 @@ func (a *App) editorModal(title string, fields []editField, onSave func(vals []s
 			}
 			form.AddTextArea(f.label, "", 0, lines, 0, nil)
 			ta := form.GetFormItem(i).(*tview.TextArea)
+			ta.SetFocusFunc(func() { a.typingIn = true })
+			ta.SetBlurFunc(func() { a.typingIn = false })
 			ta.SetText(f.initial, false) // cursor at head, like a JSON viewer
 			ta.SetWrap(true)
 			ta.SetPlaceholder("(empty)")
 			content += lines
 			continue
 		}
-		addInput(form, f.label, f.initial, 0, nil)
+		a.addInput(form, f.label, f.initial, 0, nil)
 		content++
 	}
 	height += content + len(fields) // items + padding between them

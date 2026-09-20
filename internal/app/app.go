@@ -64,6 +64,7 @@ type App struct {
 
 	openModals []string  // stack of visible modal/overlay pages, bottom → top
 	lastQ      time.Time // last bare-UI q press (double-q quits)
+	typingIn   bool      // a tracked text field currently has focus
 
 	rc    atomic.Pointer[conn.Conn]
 	alert bool
@@ -101,6 +102,8 @@ func (a *App) build() {
 		SetFieldBackgroundColor(tcell.ColorDefault).
 		SetPlaceholder(cmdPlaceholder).
 		SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim))
+	a.cmd.SetFocusFunc(func() { a.typingIn = true })
+	a.cmd.SetBlurFunc(func() { a.typingIn = false })
 
 	a.keys.SetSelectionChangedFunc(a.keysSelectionChanged)
 	a.ns.SetSelectedFunc(func(int, int) { a.treeEnter() })
@@ -153,7 +156,7 @@ func (a *App) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	// UI a second press within quitWindow quits the app. While a text field
 	// has focus, q belongs to the text (the filter/query bars implement
 	// their own empty-field q shortcut).
-	if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' && a.splash == nil && !a.fieldFocused() {
+	if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' && a.splash == nil && !a.typingIn && !a.fieldFocused() {
 		if top := a.topModal(); top != "" {
 			a.closeModal(top)
 			return nil
@@ -494,17 +497,32 @@ func hex(c tcell.Color) string {
 
 // Form items get their style rebuilt by Form.Draw every frame from bare
 // colors (SetFormAttributes drops decorations), so per-field underline styles
-// never survive. These add helpers wrap fields in underlinedField, which
-// re-applies the app-wide editable underline from inside that hook.
+// never survive. These add helpers wrap fields so the underline is re-applied
+// from inside that hook; the "_"-run placeholder draws the bottom line for
+// empty fields, where an underline style has no glyphs to mark.
 
-func addInput(form *tview.Form, label, value string, width int, changed func(string)) {
-	form.AddFormItem(underlinedField{tview.NewInputField().
-		SetLabel(label).SetText(value).SetFieldWidth(width).SetChangedFunc(changed)})
+func (a *App) addInput(form *tview.Form, label, value string, width int, changed func(string)) {
+	form.AddFormItem(underlinedField{FormItem: a.newInput(label, value, width, changed)})
 }
 
-func addPassword(form *tview.Form, label, value string, width int, changed func(string)) {
-	form.AddFormItem(underlinedField{tview.NewInputField().
-		SetLabel(label).SetText(value).SetFieldWidth(width).SetMaskCharacter('*').SetChangedFunc(changed)})
+func (a *App) addPassword(form *tview.Form, label, value string, width int, changed func(string)) {
+	in := a.newInput(label, value, width, changed)
+	in.SetMaskCharacter('*')
+	form.AddFormItem(underlinedField{FormItem: in})
+}
+
+// newInput builds a form input that also advertises its focus state, since
+// Application.GetFocus can't identify text fields reliably (Box doesn't
+// propagate the focus delegate).
+func (a *App) newInput(label, value string, width int, changed func(string)) *tview.InputField {
+	in := tview.NewInputField().
+		SetLabel(label).SetText(value).SetFieldWidth(width).SetChangedFunc(changed)
+	if width > 0 {
+		in.SetPlaceholder(strings.Repeat("_", width))
+	}
+	in.SetFocusFunc(func() { a.typingIn = true }).
+		SetBlurFunc(func() { a.typingIn = false })
+	return in
 }
 
 type underlinedField struct {

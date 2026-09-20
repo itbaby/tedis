@@ -120,20 +120,20 @@ func (a *App) openConnect() {
 
 	buildForm := func() {
 		form.Clear(false)
-		addInput(form, "name", fName, 16, func(s string) { fName = s })
-		addInput(form, "host", fHost, 20, func(s string) { fHost = s })
-		addInput(form, "port", fPort, 6, func(s string) { fPort = s })
-		addInput(form, "db", fDB, 3, func(s string) { fDB = s })
-		addInput(form, "user", fUser, 12, func(s string) { fUser = s })
-		addPassword(form, "password", fPass, 12, func(s string) { fPass = s })
+		a.addInput(form, "name", fName, 16, func(s string) { fName = s })
+		a.addInput(form, "host", fHost, 20, func(s string) { fHost = s })
+		a.addInput(form, "port", fPort, 6, func(s string) { fPort = s })
+		a.addInput(form, "db", fDB, 3, func(s string) { fDB = s })
+		a.addInput(form, "user", fUser, 12, func(s string) { fUser = s })
+		a.addPassword(form, "password", fPass, 12, func(s string) { fPass = s })
 		form.AddCheckbox("tls", fTLS, func(b bool) { fTLS = b })
 		form.AddCheckbox("tls insecure", fInsecure, func(b bool) { fInsecure = b })
 		form.AddCheckbox("cluster", fCluster, func(b bool) { fCluster = b })
-		addInput(form, "ssh host", fSSHHost, 16, func(s string) { fSSHHost = s })
-		addInput(form, "ssh port", fSSHPort, 5, func(s string) { fSSHPort = s })
-		addInput(form, "ssh user", fSSHUser, 10, func(s string) { fSSHUser = s })
-		addInput(form, "ssh key", fSSHKey, 14, func(s string) { fSSHKey = s })
-		addPassword(form, "ssh pass", fSSHPass, 10, func(s string) { fSSHPass = s })
+		a.addInput(form, "ssh host", fSSHHost, 16, func(s string) { fSSHHost = s })
+		a.addInput(form, "ssh port", fSSHPort, 5, func(s string) { fSSHPort = s })
+		a.addInput(form, "ssh user", fSSHUser, 10, func(s string) { fSSHUser = s })
+		a.addInput(form, "ssh key", fSSHKey, 14, func(s string) { fSSHKey = s })
+		a.addPassword(form, "ssh pass", fSSHPass, 10, func(s string) { fSSHPass = s })
 	}
 
 	collect := func() (*config.Profile, error) {
@@ -215,6 +215,13 @@ func (a *App) openConnect() {
 		buildForm()
 	}
 
+	list.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyTab { // hop into the editor; it cycles on its own
+			a.tapp.SetFocus(form)
+			return nil
+		}
+		return ev
+	})
 	list.SetSelectionChangedFunc(func(row, _ int) {
 		if row <= 0 {
 			return

@@ -42,6 +42,8 @@ func newQueryPage(a *App) *queryPage {
 		SetTitleColor(a.th.Title).SetTitleAlign(tview.AlignLeft)
 	q.editor.SetTextStyle(tcell.StyleDefault.Foreground(a.th.Text).Underline(true))
 	q.editor.SetPlaceholderStyle(tcell.StyleDefault.Foreground(a.th.Dim).Underline(true))
+	q.editor.SetFocusFunc(func() { a.typingIn = true })
+	q.editor.SetBlurFunc(func() { a.typingIn = false })
 
 	q.preview = tview.NewTextView().SetDynamicColors(true)
 
